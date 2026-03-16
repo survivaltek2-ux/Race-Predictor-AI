@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, Badge, Button, Progress } fro
 import { format, formatDistanceToNow } from "date-fns";
 import { ArrowLeft, BrainCircuit, TrendingUp, Info, CheckCircle2, XCircle, AlertCircle, Clock, ClipboardCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { NewsPanel } from "@/components/NewsPanel";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -267,6 +268,12 @@ export function SportEventDetail() {
 
         {/* AI Prediction Sidebar */}
         <div className="xl:col-span-1">
+          <NewsPanel
+            url={`/api/sports/news?home=${encodeURIComponent(event.home_team)}&away=${encodeURIComponent(event.away_team)}&sport=${encodeURIComponent(event.sport_title)}`}
+            queryKey={["sports-news", event.id]}
+            label="Matchup News"
+            className="mb-5"
+          />
           <div className="sticky top-6">
             {!prediction ? (
               <Card className="border-primary/20 bg-gradient-to-b from-card to-secondary/20 shadow-xl overflow-hidden relative">

@@ -5,6 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle, Badge, Button, Progress } fro
 import { format } from "date-fns";
 import { ArrowLeft, BrainCircuit, AlertCircle, Info, TrendingUp, DollarSign, Medal } from "lucide-react";
 import { formatCurrency, cn } from "@/lib/utils";
+import { NewsPanel } from "@/components/NewsPanel";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export function RaceDetail() {
   const [, params] = useRoute("/races/:id");
@@ -128,6 +131,14 @@ export function RaceDetail() {
 
         {/* Sidebar Column (AI Prediction) */}
         <div className="xl:col-span-1">
+          {race.trackName && (
+            <NewsPanel
+              url={`/api/predictions/news?track=${encodeURIComponent(race.trackName)}&horses=${encodeURIComponent((entries ?? []).slice(0, 4).map((e: any) => e.horseName).join(","))}`}
+              queryKey={["race-news", id, (entries ?? []).map((e: any) => e.horseName).join(",")]}
+              label="Race Day News"
+              className="mb-5"
+            />
+          )}
           <div className="sticky top-6">
             {!prediction ? (
               <Card className="border-primary/20 bg-gradient-to-b from-card to-secondary/20 shadow-xl overflow-hidden relative">

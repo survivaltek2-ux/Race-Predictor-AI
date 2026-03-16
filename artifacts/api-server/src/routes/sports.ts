@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, sportsPredictionsTable, sportsEventsTable } from "@workspace/db";
 import { eq, desc, and, or } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { fetchTeamNews } from "../utils/news";
 
 const router: IRouter = Router();
 
@@ -14,6 +15,27 @@ async function fetchOddsApi(path: string) {
   if (!res.ok) throw new Error(`Odds API error: ${res.status} ${res.statusText}`);
   return res.json();
 }
+
+router.get("/sports/news", async (req, res) => {
+  try {
+    const { home, away, sport } = req.query as { home?: string; away?: string; sport?: string };
+    if (!home && !away) return res.status(400).json({ error: "home or away query param required" });
+
+    const [homeItems, awayItems] = await Promise.all([
+      home && sport ? (await import("../utils/news")).fetchNews(`${home} ${sport}`, 4) : Promise.resolve([]),
+      away && sport ? (await import("../utils/news")).fetchNews(`${away} ${sport}`, 4) : Promise.resolve([]),
+    ]);
+
+    const all = [...homeItems, ...awayItems].filter((item, idx, arr) =>
+      arr.findIndex((o) => o.title === item.title) === idx
+    );
+
+    res.json(all);
+  } catch (err) {
+    console.error("Error fetching sports news:", err);
+    res.status(500).json({ error: "Failed to fetch news" });
+  }
+});
 
 router.get("/sports/list", async (_req, res) => {
   try {
@@ -138,6 +160,8 @@ router.post("/sports/predictions", async (req, res) => {
       teamPreds.length > 0 ? `\n  Prior predictions involving these teams:\n${teamHistoryLines}` : "  - No prior predictions involving these teams",
     ].filter(Boolean).join("\n");
 
+    const newsSection = await fetchTeamNews(homeTeam, awayTeam, sportTitle);
+
     const prompt = `You are an expert sports analyst and betting handicapper. You are reviewing your own model's historical performance to make a better-calibrated prediction.
 
 MATCHUP: ${awayTeam} @ ${homeTeam}
@@ -148,11 +172,13 @@ CURRENT ODDS (American format):
 ${oddsLines}
 
 ${historicalSection}
+${newsSection ? `\n${newsSection}` : ""}
 
 INSTRUCTIONS:
 - Use the historical record to adjust your confidence — if the model has been overconfident, lower your scores
 - If you've previously picked a team and been wrong, factor that into your reasoning
 - If the model has no history for this sport, be conservative with confidence scores
+- Analyze the news section for injuries, suspensions, roster changes, recent form, or travel fatigue that shifts the edge
 - Your confidence should reflect genuine probability, not wishful thinking
 
 Provide a structured prediction. Respond ONLY with valid JSON:

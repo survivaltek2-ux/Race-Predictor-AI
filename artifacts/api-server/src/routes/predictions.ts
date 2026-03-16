@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, predictionsTable, racesTable, horsesTable, raceEntriesTable, tracksTable } from "@workspace/db";
 import { eq, desc, ne } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { fetchHorseRacingNews } from "../utils/news";
 
 const router: IRouter = Router();
 
@@ -175,6 +176,9 @@ router.post("/predictions/generate", async (req, res) => {
       horseHistoryLines ? `  Per-horse model record:\n${horseHistoryLines}` : "  - No prior picks on horses in this field",
     ].join("\n");
 
+    const horseNames = entries.map((e) => e.horseName);
+    const newsSection = await fetchHorseRacingNews(race.trackName, horseNames);
+
     const prompt = `You are an expert horse racing analyst with 30 years of experience handicapping US races. You are also reviewing your own model's past performance to improve your predictions.
 
 RACE INFO:
@@ -189,9 +193,11 @@ HORSES ENTERED:
 ${entriesText}
 
 ${historicalSection}
+${newsSection ? `\n${newsSection}` : ""}
 
 INSTRUCTIONS:
 - Use the historical performance data above to calibrate your confidence scores
+- Check the news section for injuries, jockey changes, trainer notes, or track condition updates that may affect the result
 - If the model has been overconfident in the past (avg confidence > accuracy %), reduce confidence scores
 - If a horse has a strong model hit rate in similar conditions, that is a positive signal
 - If the model has struggled at this track or surface, widen the confidence gap between picks
@@ -277,6 +283,26 @@ Focus on: recent form, class level, distance/surface suitability, jockey/trainer
   } catch (err) {
     console.error("Error generating prediction:", err);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/predictions/news", async (req, res) => {
+  try {
+    const { track, horses } = req.query as { track?: string; horses?: string };
+    if (!track) return res.status(400).json({ error: "track query param required" });
+
+    const horseList = horses ? horses.split(",").map((h) => h.trim()).filter(Boolean).slice(0, 4) : [];
+    const { fetchNews } = await import("../utils/news");
+
+    const queries = [`${track} horse racing`, ...horseList.map((h) => `${h} horse racing`)];
+    const results = await Promise.all(queries.map((q) => fetchNews(q, 3)));
+    const flat = results.flat();
+    const deduped = flat.filter((item, idx, arr) => arr.findIndex((o) => o.title === item.title) === idx);
+
+    res.json(deduped.slice(0, 10));
+  } catch (err) {
+    console.error("Error fetching race news:", err);
+    res.status(500).json({ error: "Failed to fetch news" });
   }
 });
 
