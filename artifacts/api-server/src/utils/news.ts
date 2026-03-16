@@ -5,10 +5,9 @@ export interface NewsItem {
   source: string;
 }
 
-// ─── Noise filters ─────────────────────────────────────────────────────────
-// Patterns that reliably identify non-sports / ad content.  Tested case-insensitively.
+// ─── Hard noise filter — always discard ────────────────────────────────────
 const NOISE_PATTERNS: RegExp[] = [
-  // Obituaries & death notices  ("John Doe, 83, of Springfield" or "Dies at 74")
+  // Obituaries & death notices
   /\b\d{2,3},\s+of\s+\w/i,
   /\bdies?\b.*\bat\s+\d{2}/i,
   /\bpassed away\b/i,
@@ -16,64 +15,251 @@ const NOISE_PATTERNS: RegExp[] = [
   /\bmemorial\s+service\b/i,
   /\bfuneral\b/i,
   /\bin\s+loving\s+memory\b/i,
-
-  // Casino / gambling ads (not sports betting context)
+  // Casino / gambling ads
   /\bjackpot\s+record/i,
   /\bslot\s+machine/i,
   /\bcasino['']s?\s+jackpot/i,
   /\blucky\s+players?\s+break/i,
-
-  // Non-sports "industrial / municipal" news
+  // Non-sports industrial / municipal
   /\bindustrial\s+business\s+park\b/i,
   /\bstate\s+funds?\s+for\b/i,
   /\breceives?\s+\$\d+[MBK]\b/i,
-
-  // Motocross / non-horse-racing motor sport (when querying for horse racing)
+  // Motocross / unrelated motorsport
   /\bsupermotocross\b/i,
-
-  // Real-estate / cooking / unrelated lifestyle
+  // Real-estate / cooking / lifestyle
   /\brecipe\b/i,
   /\breal\s+estate\b/i,
+  // Opinion / fluff / evergreen content that has zero predictive value
+  /\bpower\s+rankings?\b/i,
+  /\bfantasy\s+(football|baseball|basketball|hockey|picks|rankings|advice)\b/i,
+  /\bmock\s+draft\b/i,
+  /\bbest\s+bets\b/i,
+  /\bsports\s+betting\s+odds\b/i,
+  /\bprophecies\b/i,
+  /\blegacy\b.*\ball[-\s]time\b/i,
+  /\bgreatest\s+(of\s+all\s+time|ever)\b/i,
+  /\bthrowback\b/i,
+  /\bon\s+this\s+day\b/i,
+  /\b(funniest|weirdest|craziest)\s+moments?\b/i,
+  /\bhighlights?\s+of\s+the\s+(week|month|year)\b/i,
+  /\bwatch:\s/i,
+  /\bgallery:/i,
+];
+
+// ─── Low-signal patterns — deprioritise but don't discard outright ──────────
+// Items matching these get a score penalty. They may still appear if we don't
+// have enough high-signal content to fill the quota.
+const LOW_SIGNAL_PATTERNS: RegExp[] = [
+  /\bpreview\b/i,
+  /\boutlook\b/i,
+  /\bprediction\b/i,
+  /\bforecast\b/i,
+  /\banalysis\b/i,
+  /\bbreakdown\b/i,
+  /\bhow\s+to\s+watch\b/i,
+  /\bwhere\s+to\s+watch\b/i,
+  /\bschedule\b/i,
+  /\btickets?\b/i,
+  /\brecap\b/i,
+  /\bhighlights?\b/i,
+  /\b(season|year|career)\s+review\b/i,
+  /\bhistory\s+between\b/i,
+  /\bstats\s+and\s+trends?\b/i,
+  /\bpick(s)?\s+and\s+predictions?\b/i,
+  /\bbest\s+(player|team)\s+in\b/i,
+  /\branking\b/i,
+  /\btop\s+\d+\b/i,
+  /\bwho\s+is\s+the\s+best\b/i,
+];
+
+// ─── High-signal facts — these bubble to the top ────────────────────────────
+// Sports: injury / availability / roster / lineup moves
+const SPORTS_HIGH_SIGNAL: RegExp[] = [
+  // Injury & availability
+  /\binjur(y|ies|ed)\b/i,
+  /\bruled?\s+out\b/i,
+  /\bout\s+for\s+(the\s+)?(game|season|week|month)\b/i,
+  /\bout\s+indefinitely\b/i,
+  /\bmissed?\s+(practice|training|session|start)\b/i,
+  /\bdid\s+not\s+practice\b/i,
+  /\blimited\s+practice\b/i,
+  /\bday[-\s]to[-\s]day\b/i,
+  /\bquestionable\b/i,
+  /\bdoubtful\b/i,
+  /\bon\s+(the\s+)?(injured\s+reserve|IL|DL)\b/i,
+  /\bactivated\s+from\b/i,
+  /\bconcussion\s+protocol\b/i,
+  /\btorn\s+(acl|mcl|achilles|meniscus|hamstring)\b/i,
+  /\bfracture[d]?\b/i,
+  /\bsprain(ed)?\b/i,
+  /\bstrain(ed)?\b/i,
+  /\bsurgery\b/i,
+  /\bunder\s+the\s+weather\b/i,
+  /\breturn(s|ing|ed)?\s+from\s+injury\b/i,
+  /\bhealth\s+(update|status)\b/i,
+  // Suspensions & discipline
+  /\bsuspend(ed|sion)\b/i,
+  /\bbanned\b/i,
+  /\bdisqualified\b/i,
+  /\bejected\b/i,
+  /\bfined\s+\$?\d+/i,
+  /\bdisciplinar(y|ily)\b/i,
+  // Roster / lineup moves
+  /\btrade[d]?\b/i,
+  /\bacquire[d]?\b/i,
+  /\btransfer[r]?ed?\b/i,
+  /\breleased?\b/i,
+  /\bwaived?\b/i,
+  /\bdesignated\s+for\s+assignment\b/i,
+  /\bsign(s|ed|ing)\b/i,
+  /\bfree\s+agent\b/i,
+  /\bbenched?\b/i,
+  /\bwill\s+start\b/i,
+  /\bstarting\s+(lineup|rotation|pitcher|quarterback|goalie)\b/i,
+  /\bscratch(ed)?\s+(from|before)\b/i,
+  /\blate\s+scratch\b/i,
+  /\blineup\s+change\b/i,
+  /\broster\s+(move|update|change)\b/i,
+  /\bcall[s]?\s+up\b/i,
+  /\bpromot(ed|ion)\b/i,
+  // Coaching changes
+  /\bfired\b/i,
+  /\bcoaching\s+change\b/i,
+  /\bnew\s+(head\s+)?coach\b/i,
+  /\binterim\s+coach\b/i,
+];
+
+// Horse racing: high-signal facts specific to the sport
+const HORSE_RACING_HIGH_SIGNAL: RegExp[] = [
+  /\bscratch(ed)?\b/i,
+  /\blate\s+scratch\b/i,
+  /\bjockey\s+(change|swap|replac|named|booked|rides?)\b/i,
+  /\b(replac|swap)(ed|ing)?\s+(jockey|rider)\b/i,
+  /\btrainer\s+(change|swap|suspens|fine|banned)\b/i,
+  /\bequipment\s+change\b/i,
+  /\bblinkers\s+(on|off|added|removed)\b/i,
+  /\b(vet|veterinary)\s+scratch\b/i,
+  /\blame\b/i,
+  /\binjur(y|ed)\b/i,
+  /\bmorning[-\s]line\s+(odd|favor|change)\b/i,
+  /\bpost\s+position\b/i,
+  /\bbullet\s+workout\b/i,
+  /\bworkout\s+(time|bullet|blowout)\b/i,
+  /\bsloppy\s+track\b/i,
+  /\bmuddy\s+track\b/i,
+  /\btrack\s+(condition|surface|fast|sloppy|muddy|good|firm)\b/i,
+  /\bwithdraw[sn]?\b/i,
+  /\bwon'?t\s+(run|race|start)\b/i,
+  /\bpulled\s+(from|out)\b/i,
+  /\bbypasses?\b/i,
+  /\bskips?\s+(the\s+)?(race|start)\b/i,
+];
+
+// Horse racing relevance — must contain at least one of these to be included at all
+const HORSE_RACING_RELEVANT: RegExp[] = [
+  /\bhorse\s+rac/i,
+  /\brac(e|ing|etrack)\b/i,
+  /\bjockey\b/i,
+  /\btrainer\b/i,
+  /\bderby\b/i,
+  /\bstakes\b/i,
+  /\bpurse\b/i,
+  /\bhandicap\b/i,
+  /\bthoroughbred\b/i,
+  /\bturf\b/i,
+  /\bfurlongs?\b/i,
+  /\bscratch(ed)?\b/i,
+  /\bmorn(ing)?\s+line\b/i,
+  /\bpost\s+time\b/i,
+  /\bchurchill\s+downs\b/i,
+  /\bbelmont\b/i,
+  /\bsaratoga\b/i,
+  /\bkeeneland\b/i,
+  /\baqueduct\b/i,
+  /\bpimlico\b/i,
+  /\btriple\s+crown\b/i,
+  /\bclaimsing\b/i,
+  /\bworkout\b/i,
+  /\bequine\b/i,
+  /\bcolt\b/i,
+  /\bfilly\b/i,
+  /\bmare\b/i,
+  /\bgelding\b/i,
+  /\bstallion\b/i,
 ];
 
 function isNoise(title: string): boolean {
   return NOISE_PATTERNS.some((p) => p.test(title));
 }
 
-// ─── Relevance scoring ──────────────────────────────────────────────────────
-const HORSE_RACING_TERMS = [
-  /\bhorse\s+rac/i, /\brac(e|ing|etrack)\b/i, /\bjockey\b/i, /\btrainer\b/i,
-  /\bderby\b/i, /\bstakes\b/i, /\bpurse\b/i, /\bhandicap\b/i, /\bgallop\b/i,
-  /\bthrooughbred\b/i, /\bdirt\s+track\b/i, /\bturf\b/i, /\bfurlongs?\b/i,
-  /\bscratch(ed)?\b/i, /\bmorn(ing)?\s+line\b/i, /\bpost\s+time\b/i,
-  /\bchurchill\s+downs\b/i, /\bbelmont\b/i, /\bsaratoga\b/i, /\bkeeneland\b/i,
-  /\baqueduct\b/i, /\bpimlico\b/i, /\btriple\s+crown\b/i,
-];
+// ─── Scoring ─────────────────────────────────────────────────────────────────
+// Returns 0–10. Items are sorted descending before slicing so the most
+// fact-rich, actionable results always appear first.
+function scoreSportsItem(title: string, homeTeam: string, awayTeam: string, sportTitle: string): number {
+  const t = title;
+  let score = 0;
 
-const GENERAL_SPORTS_TERMS = [
-  /\binjur(y|ies|ed)\b/i, /\bsuspend(ed)?\b/i, /\btrade(d)?\b/i, /\bsigned\b/i,
-  /\bcoach\b/i, /\broster\b/i, /\bplayoff\b/i, /\bscored?\b/i, /\bwins?\b/i,
-  /\bloses?\b/i, /\bdefeats?\b/i, /\bbeat\b/i, /\bgame\b/i, /\bmatch\b/i,
-  /\bseason\b/i, /\bteam\b/i, /\bplayer\b/i, /\bchampionship\b/i, /\bleague\b/i,
-  /\bdraft\b/i, /\bcontract\b/i, /\bfree\s+agent\b/i, /\blineup\b/i, /\bstarting\b/i,
-];
+  // Must mention a team or the sport to score at all
+  const tl = t.toLowerCase();
+  const mentionsTeam = tl.includes(homeTeam.toLowerCase()) || tl.includes(awayTeam.toLowerCase());
+  const mentionsSport = sportTitle && tl.includes(sportTitle.toLowerCase());
+  if (!mentionsTeam && !mentionsSport) return 0;
 
+  // Low-signal penalty (applied before high-signal boost so a headline can still
+  // overcome the penalty if it has a strong factual signal)
+  if (LOW_SIGNAL_PATTERNS.some((p) => p.test(t))) score -= 2;
+
+  // Team name bonus — more specific = more useful
+  if (mentionsTeam) score += 2;
+
+  // High-signal boost — each matching pattern adds points
+  const highMatches = SPORTS_HIGH_SIGNAL.filter((p) => p.test(t)).length;
+  score += highMatches * 3;
+
+  return score;
+}
+
+function scoreHorseRacingItem(title: string, trackName: string, horseNames: string[]): number {
+  const t = title;
+  let score = 0;
+
+  // Must be racing-relevant to score at all
+  if (!HORSE_RACING_RELEVANT.some((p) => p.test(t))) {
+    // Track name fallback
+    if (!t.toLowerCase().includes(trackName.toLowerCase())) return 0;
+  }
+
+  // Low-signal penalty
+  if (LOW_SIGNAL_PATTERNS.some((p) => p.test(t))) score -= 2;
+
+  // Track name bonus
+  if (t.toLowerCase().includes(trackName.toLowerCase())) score += 2;
+
+  // Horse name bonus — directly about a horse in this race
+  if (horseNames.some((name) => t.toLowerCase().includes(name.toLowerCase()))) score += 4;
+
+  // High-signal boost
+  const highMatches = HORSE_RACING_HIGH_SIGNAL.filter((p) => p.test(t)).length;
+  score += highMatches * 3;
+
+  return score;
+}
+
+function sortAndFilter<T extends { title: string }>(items: T[], scorer: (item: T) => number, min = 0): T[] {
+  return items
+    .map((item) => ({ item, score: scorer(item) }))
+    .filter(({ score }) => score > min)
+    .sort((a, b) => b.score - a.score)
+    .map(({ item }) => item);
+}
+
+// Legacy wrappers kept for backward compat (used in some places)
 function isRelevantHorseRacing(title: string, trackName: string): boolean {
-  const titleLower = title.toLowerCase();
-  const trackLower = trackName.toLowerCase();
-  // Accept if it mentions the track by name OR uses any horse-racing term
-  if (titleLower.includes(trackLower)) return true;
-  return HORSE_RACING_TERMS.some((p) => p.test(title));
+  return scoreHorseRacingItem(title, trackName, []) > 0;
 }
 
 function isRelevantSport(title: string, homeTeam: string, awayTeam: string, sportTitle: string): boolean {
-  const titleLower = title.toLowerCase();
-  const sportLower = sportTitle.toLowerCase();
-  // Accept if it explicitly names a team, the sport, or a common sports action
-  if (titleLower.includes(homeTeam.toLowerCase())) return true;
-  if (titleLower.includes(awayTeam.toLowerCase())) return true;
-  if (sportLower && titleLower.includes(sportLower)) return true;
-  return GENERAL_SPORTS_TERMS.some((p) => p.test(title));
+  return scoreSportsItem(title, homeTeam, awayTeam, sportTitle) > 0;
 }
 
 // ─── HTML helpers ───────────────────────────────────────────────────────────
@@ -182,71 +368,76 @@ function dedup(items: NewsItem[]): NewsItem[] {
 }
 
 export async function fetchTeamNews(homeTeam: string, awayTeam: string, sportTitle: string): Promise<string> {
-  const [homeNews, awayNews] = await Promise.all([
-    fetchNews(`${homeTeam} ${sportTitle}`, 4),
-    fetchNews(`${awayTeam} ${sportTitle}`, 4),
+  // Broad team queries + a targeted injury/trade sweep
+  const [homeNews, awayNews, injuryNews] = await Promise.all([
+    fetchNews(`${homeTeam} ${sportTitle}`, 8),
+    fetchNews(`${awayTeam} ${sportTitle}`, 8),
+    fetchNews(`${homeTeam} OR ${awayTeam} injury trade suspension`, 6),
   ]);
 
-  const filtered = dedup([...homeNews, ...awayNews])
-    .filter((n) => !isNoise(n.title))
-    .filter((n) => isRelevantSport(n.title, homeTeam, awayTeam, sportTitle))
-    .slice(0, 6);
+  const scored = sortAndFilter(
+    dedup([...homeNews, ...awayNews, ...injuryNews]).filter((n) => !isNoise(n.title)),
+    (n) => scoreSportsItem(n.title, homeTeam, awayTeam, sportTitle),
+  ).slice(0, 6);
 
-  if (filtered.length === 0) return "";
+  if (scored.length === 0) return "";
 
-  const lines = filtered
+  const lines = scored
     .map((n) => {
       const dateStr = n.pubDate ? ` (${n.pubDate.slice(0, 16)})` : "";
       return `  • ${n.title}${dateStr}${n.description ? `\n    ${n.description}` : ""}`;
     })
     .join("\n");
 
-  return `RECENT SPORTS NEWS (use to inform your prediction — injuries, form, lineup changes, etc.):\n${lines}`;
+  return `RECENT SPORTS NEWS — prioritised by fact-signal (injuries, roster moves, suspensions appear first):\n${lines}`;
 }
 
 export async function fetchRaceNewsItems(trackName: string, horseNames: string[]): Promise<NewsItem[]> {
-  const [trackNews, ...horseNewsArr] = await Promise.all([
-    fetchNews(`${trackName} horse racing`, 5),
-    ...horseNames.slice(0, 3).map((name) => fetchNews(`${name} horse racing`, 3)),
+  const [trackNews, scratchNews, ...horseNewsArr] = await Promise.all([
+    fetchNews(`${trackName} horse racing`, 8),
+    fetchNews(`${trackName} scratch jockey injury`, 5),
+    ...horseNames.slice(0, 4).map((name) => fetchNews(`"${name}" horse racing scratch injury`, 4)),
   ]);
 
-  return dedup([...trackNews, ...horseNewsArr.flat()])
-    .filter((n) => !isNoise(n.title))
-    .filter((n) => isRelevantHorseRacing(n.title, trackName))
-    .slice(0, 10);
+  return sortAndFilter(
+    dedup([...trackNews, ...scratchNews, ...horseNewsArr.flat()]).filter((n) => !isNoise(n.title)),
+    (n) => scoreHorseRacingItem(n.title, trackName, horseNames),
+  ).slice(0, 10);
 }
 
 export async function fetchTeamNewsItems(homeTeam: string, awayTeam: string, sportTitle: string): Promise<NewsItem[]> {
-  const [homeNews, awayNews] = await Promise.all([
-    fetchNews(`${homeTeam} ${sportTitle}`, 4),
-    fetchNews(`${awayTeam} ${sportTitle}`, 4),
+  const [homeNews, awayNews, injuryNews] = await Promise.all([
+    fetchNews(`${homeTeam} ${sportTitle}`, 8),
+    fetchNews(`${awayTeam} ${sportTitle}`, 8),
+    fetchNews(`${homeTeam} OR ${awayTeam} injury trade suspension`, 6),
   ]);
 
-  return dedup([...homeNews, ...awayNews])
-    .filter((n) => !isNoise(n.title))
-    .filter((n) => isRelevantSport(n.title, homeTeam, awayTeam, sportTitle))
-    .slice(0, 8);
+  return sortAndFilter(
+    dedup([...homeNews, ...awayNews, ...injuryNews]).filter((n) => !isNoise(n.title)),
+    (n) => scoreSportsItem(n.title, homeTeam, awayTeam, sportTitle),
+  ).slice(0, 8);
 }
 
 export async function fetchHorseRacingNews(trackName: string, horseNames: string[]): Promise<string> {
-  const [trackNews, ...horseNewsArr] = await Promise.all([
-    fetchNews(`${trackName} horse racing`, 5),
-    ...horseNames.slice(0, 3).map((name) => fetchNews(`${name} horse racing`, 3)),
+  const [trackNews, scratchNews, ...horseNewsArr] = await Promise.all([
+    fetchNews(`${trackName} horse racing`, 8),
+    fetchNews(`${trackName} scratch jockey injury`, 5),
+    ...horseNames.slice(0, 4).map((name) => fetchNews(`"${name}" horse racing scratch injury`, 4)),
   ]);
 
-  const filtered = dedup([...trackNews, ...horseNewsArr.flat()])
-    .filter((n) => !isNoise(n.title))
-    .filter((n) => isRelevantHorseRacing(n.title, trackName))
-    .slice(0, 6);
+  const scored = sortAndFilter(
+    dedup([...trackNews, ...scratchNews, ...horseNewsArr.flat()]).filter((n) => !isNoise(n.title)),
+    (n) => scoreHorseRacingItem(n.title, trackName, horseNames),
+  ).slice(0, 6);
 
-  if (filtered.length === 0) return "";
+  if (scored.length === 0) return "";
 
-  const lines = filtered
+  const lines = scored
     .map((n) => {
       const dateStr = n.pubDate ? ` (${n.pubDate.slice(0, 16)})` : "";
       return `  • ${n.title}${dateStr}${n.description ? `\n    ${n.description}` : ""}`;
     })
     .join("\n");
 
-  return `RECENT HORSE RACING NEWS (use to inform your prediction — track conditions, horse form, late scratches, etc.):\n${lines}`;
+  return `RECENT HORSE RACING NEWS — prioritised by fact-signal (scratches, jockey changes, injuries appear first):\n${lines}`;
 }
