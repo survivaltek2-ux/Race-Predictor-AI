@@ -1,0 +1,15 @@
+packages:
+  "recharts": "For displaying AI accuracy trends and horse performance statistics"
+  "framer-motion": "For premium page transitions, stagger effects, and AI prediction reveal animations"
+  "date-fns": "For elegant and human-readable date formatting across the app"
+  "clsx": "For conditional tailwind class merging"
+  "tailwind-merge": "For conflict-free tailwind class merging in UI components"
+
+images:
+  - path: "artifacts/horse-racing-ai/public/images/dashboard-bg.png"
+    description: "A dark, highly professional and sleek abstract background featuring subtle neon geometric lines resembling a horse racing track with an AI/data-driven aesthetic. Colors should be predominantly deep slate, almost black, with very subtle glowing emerald green and deep indigo accents."
+    aspect_ratio: "16:9"
+
+notes:
+  - Application uses React Query hooks exported directly from @workspace/api-client-react
+  - The design is strictly dark mode, focusing on a premium, data-dense, "Bloomberg terminal meets AI" aesthetic

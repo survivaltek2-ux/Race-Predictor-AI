@@ -1,22 +1,28 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Horse Racing AI Predictor API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: races
+    description: Race management
+  - name: horses
+    description: Horse data
+  - name: predictions
+    description: AI predictions
+  - name: tracks
+    description: Track information
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +30,258 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /tracks:
+    get:
+      operationId: listTracks
+      tags: [tracks]
+      summary: List US horse racing tracks
+      responses:
+        "200":
+          description: List of tracks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Track"
+
+  /races:
+    get:
+      operationId: listRaces
+      tags: [races]
+      summary: List races with optional filtering
+      parameters:
+        - name: trackId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [upcoming, completed, all]
+      responses:
+        "200":
+          description: List of races
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Race"
+    post:
+      operationId: createRace
+      tags: [races]
+      summary: Create a new race
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRaceBody"
+      responses:
+        "201":
+          description: Created race
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Race"
+
+  /races/{id}:
+    get:
+      operationId: getRace
+      tags: [races]
+      summary: Get a race by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Race details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Race"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /races/{id}/entries:
+    get:
+      operationId: getRaceEntries
+      tags: [races]
+      summary: Get horses entered in a race
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Race entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RaceEntry"
+
+  /races/{id}/results:
+    post:
+      operationId: recordRaceResult
+      tags: [races]
+      summary: Record actual race results
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordResultBody"
+      responses:
+        "200":
+          description: Updated race
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Race"
+
+  /horses:
+    get:
+      operationId: listHorses
+      tags: [horses]
+      summary: List horses with optional search
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of horses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Horse"
+    post:
+      operationId: createHorse
+      tags: [horses]
+      summary: Create a new horse record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateHorseBody"
+      responses:
+        "201":
+          description: Created horse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Horse"
+
+  /horses/{id}:
+    get:
+      operationId: getHorse
+      tags: [horses]
+      summary: Get horse details and history
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Horse details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HorseDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /predictions:
+    get:
+      operationId: listPredictions
+      tags: [predictions]
+      summary: List all predictions
+      parameters:
+        - name: raceId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of predictions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Prediction"
+
+  /predictions/generate:
+    post:
+      operationId: generatePrediction
+      tags: [predictions]
+      summary: Generate AI prediction for a race
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GeneratePredictionBody"
+      responses:
+        "200":
+          description: Generated prediction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Prediction"
+
+  /predictions/stats:
+    get:
+      operationId: getPredictionStats
+      tags: [predictions]
+      summary: Get overall AI prediction accuracy stats
+      responses:
+        "200":
+          description: Prediction stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PredictionStats"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +289,312 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    Track:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        location:
+          type: string
+        state:
+          type: string
+        surface:
+          type: string
+        createdAt:
+          type: string
+      required: [id, name, location, state, surface, createdAt]
+
+    Race:
+      type: object
+      properties:
+        id:
+          type: integer
+        trackId:
+          type: integer
+        trackName:
+          type: string
+        raceNumber:
+          type: integer
+        raceName:
+          type: string
+        raceDate:
+          type: string
+        postTime:
+          type: string
+        distance:
+          type: string
+        surface:
+          type: string
+        purse:
+          type: integer
+        conditions:
+          type: string
+        status:
+          type: string
+          enum: [upcoming, completed, cancelled]
+        winnerHorseId:
+          type: integer
+          nullable: true
+        winnerHorseName:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+      required: [id, trackId, raceNumber, raceName, raceDate, distance, surface, status, createdAt]
+
+    CreateRaceBody:
+      type: object
+      properties:
+        trackId:
+          type: integer
+        raceNumber:
+          type: integer
+        raceName:
+          type: string
+        raceDate:
+          type: string
+        postTime:
+          type: string
+        distance:
+          type: string
+        surface:
+          type: string
+          enum: [dirt, turf, synthetic]
+        purse:
+          type: integer
+        conditions:
+          type: string
+      required: [trackId, raceNumber, raceName, raceDate, distance, surface]
+
+    RecordResultBody:
+      type: object
+      properties:
+        winnerHorseId:
+          type: integer
+        finishOrder:
+          type: array
+          items:
+            type: integer
+      required: [winnerHorseId]
+
+    RaceEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        raceId:
+          type: integer
+        horseId:
+          type: integer
+        horseName:
+          type: string
+        postPosition:
+          type: integer
+        jockey:
+          type: string
+        trainer:
+          type: string
+        morningLineOdds:
+          type: string
+        weight:
+          type: integer
+        lastRaceDate:
+          type: string
+          nullable: true
+        lastRaceFinish:
+          type: integer
+          nullable: true
+        winPercentage:
+          type: number
+          nullable: true
+        placePercentage:
+          type: number
+          nullable: true
+        totalRaces:
+          type: integer
+        totalWins:
+          type: integer
+      required: [id, raceId, horseId, horseName, postPosition, jockey, trainer, totalRaces, totalWins]
+
+    Horse:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        age:
+          type: integer
+        sex:
+          type: string
+        color:
+          type: string
+        sire:
+          type: string
+        dam:
+          type: string
+        trainer:
+          type: string
+        owner:
+          type: string
+        totalRaces:
+          type: integer
+        totalWins:
+          type: integer
+        totalPlaces:
+          type: integer
+        totalShows:
+          type: integer
+        earnings:
+          type: integer
+        createdAt:
+          type: string
+      required: [id, name, age, sex, totalRaces, totalWins, totalPlaces, totalShows, earnings, createdAt]
+
+    HorseDetail:
+      allOf:
+        - $ref: "#/components/schemas/Horse"
+        - type: object
+          properties:
+            recentRaces:
+              type: array
+              items:
+                $ref: "#/components/schemas/RaceHistoryEntry"
+          required: [recentRaces]
+
+    RaceHistoryEntry:
+      type: object
+      properties:
+        raceId:
+          type: integer
+        raceName:
+          type: string
+        trackName:
+          type: string
+        raceDate:
+          type: string
+        distance:
+          type: string
+        surface:
+          type: string
+        finishPosition:
+          type: integer
+        jockey:
+          type: string
+        weight:
+          type: integer
+        odds:
+          type: string
+        conditions:
+          type: string
+      required: [raceId, raceName, trackName, raceDate, distance, surface, finishPosition, jockey, weight]
+
+    CreateHorseBody:
+      type: object
+      properties:
+        name:
+          type: string
+        age:
+          type: integer
+        sex:
+          type: string
+          enum: [colt, filly, gelding, mare, horse]
+        color:
+          type: string
+        sire:
+          type: string
+        dam:
+          type: string
+        trainer:
+          type: string
+        owner:
+          type: string
+      required: [name, age, sex]
+
+    Prediction:
+      type: object
+      properties:
+        id:
+          type: integer
+        raceId:
+          type: integer
+        raceName:
+          type: string
+        trackName:
+          type: string
+        raceDate:
+          type: string
+        predictedWinnerId:
+          type: integer
+        predictedWinnerName:
+          type: string
+        confidenceScore:
+          type: number
+        reasoning:
+          type: string
+        topPicks:
+          type: array
+          items:
+            $ref: "#/components/schemas/PredictionPick"
+        wasCorrect:
+          type: boolean
+          nullable: true
+        actualWinnerId:
+          type: integer
+          nullable: true
+        actualWinnerName:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+      required: [id, raceId, predictedWinnerId, predictedWinnerName, confidenceScore, reasoning, topPicks, createdAt]
+
+    PredictionPick:
+      type: object
+      properties:
+        horseId:
+          type: integer
+        horseName:
+          type: string
+        rank:
+          type: integer
+        confidenceScore:
+          type: number
+        keyFactors:
+          type: array
+          items:
+            type: string
+      required: [horseId, horseName, rank, confidenceScore, keyFactors]
+
+    GeneratePredictionBody:
+      type: object
+      properties:
+        raceId:
+          type: integer
+      required: [raceId]
+
+    PredictionStats:
+      type: object
+      properties:
+        totalPredictions:
+          type: integer
+        correctPredictions:
+          type: integer
+        accuracyPercentage:
+          type: number
+        averageConfidence:
+          type: number
+        recentAccuracy:
+          type: number
+      required: [totalPredictions, correctPredictions, accuracyPercentage, averageConfidence, recentAccuracy]
