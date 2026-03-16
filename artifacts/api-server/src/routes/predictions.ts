@@ -3,6 +3,7 @@ import { db, predictionsTable, racesTable, horsesTable, raceEntriesTable, tracks
 import { eq, desc, ne } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { fetchHorseRacingNews } from "../utils/news";
+import { fetchWeather, getTrackCoords, buildWeatherPromptSection } from "../utils/weather";
 
 const router: IRouter = Router();
 
@@ -177,7 +178,14 @@ router.post("/predictions/generate", async (req, res) => {
     ].join("\n");
 
     const horseNames = entries.map((e) => e.horseName);
-    const newsSection = await fetchHorseRacingNews(race.trackName, horseNames);
+    const [newsSection, weatherResult] = await Promise.all([
+      fetchHorseRacingNews(race.trackName, horseNames),
+      (async () => {
+        const coords = getTrackCoords(race.trackName);
+        return coords ? fetchWeather(coords[0], coords[1]) : null;
+      })(),
+    ]);
+    const weatherSection = weatherResult ? buildWeatherPromptSection(weatherResult, "racing") : null;
 
     const prompt = `You are an expert horse racing analyst with 30 years of experience handicapping US races. You are also reviewing your own model's past performance to improve your predictions.
 
@@ -188,6 +196,7 @@ RACE INFO:
 - Surface: ${race.surface}
 - Conditions: ${race.conditions || "Standard conditions"}
 - Purse: $${race.purse.toLocaleString()}
+${weatherSection ? `\n${weatherSection}` : ""}
 
 HORSES ENTERED:
 ${entriesText}
@@ -258,7 +267,11 @@ Focus on: recent form, class level, distance/surface suitability, jockey/trainer
         predictedWinnerId: winnerEntry.horseId,
         confidenceScore: winner.confidenceScore,
         reasoning: aiResult.reasoning ?? "AI analysis complete.",
-        topPicksJson: JSON.stringify({ picks: topPicksWithIds, newsInsights: aiResult.newsInsights ?? [] }),
+        topPicksJson: JSON.stringify({
+          picks: topPicksWithIds,
+          newsInsights: aiResult.newsInsights ?? [],
+          weatherData: weatherResult ?? null,
+        }),
       })
       .returning();
 
@@ -360,14 +373,15 @@ router.get("/predictions/stats", async (req, res) => {
 function formatPrediction(p: any, predictedWinnerName: string, actualWinnerName: string | null) {
   let topPicks: any[] = [];
   let newsInsights: string[] = [];
+  let weatherData: any = null;
   try {
     const raw = JSON.parse(p.topPicksJson ?? "[]");
-    // Support both old format (array) and new format ({ picks, newsInsights })
     if (Array.isArray(raw)) {
       topPicks = raw;
     } else {
       topPicks = raw.picks ?? [];
       newsInsights = raw.newsInsights ?? [];
+      weatherData = raw.weatherData ?? null;
     }
   } catch {}
   return {
@@ -382,6 +396,7 @@ function formatPrediction(p: any, predictedWinnerName: string, actualWinnerName:
     reasoning: p.reasoning,
     topPicks,
     newsInsights,
+    weatherData,
     wasCorrect: p.wasCorrect ?? null,
     actualWinnerId: p.actualWinnerId ?? null,
     actualWinnerName,

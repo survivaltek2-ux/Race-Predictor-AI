@@ -9,6 +9,7 @@ export const sportsEventsTable = pgTable("sports_events", {
   awayTeam: text("away_team").notNull(),
   commenceTime: timestamp("commence_time").notNull(),
   oddsJson: text("odds_json").notNull().default("{}"),
+  openingOddsJson: text("opening_odds_json"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button, Progress } from "@/components/ui";
 import { format, formatDistanceToNow } from "date-fns";
-import { ArrowLeft, BrainCircuit, TrendingUp, Info, CheckCircle2, XCircle, AlertCircle, Clock, ClipboardCheck, Newspaper } from "lucide-react";
+import { ArrowLeft, BrainCircuit, TrendingUp, Info, CheckCircle2, XCircle, AlertCircle, Clock, ClipboardCheck, Newspaper, Cloud, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NewsPanel } from "@/components/NewsPanel";
 
@@ -315,7 +315,15 @@ export function SportEventDetail() {
                     <Badge variant="default" className="bg-primary text-primary-foreground">
                       <BrainCircuit className="w-3 h-3 mr-1" /> AI Pick
                     </Badge>
-                    <span className="text-xs text-muted-foreground">{format(new Date(prediction.createdAt), "MMM d, h:mm a")}</span>
+                    <div className="flex items-center gap-2">
+                      {prediction.weatherData && (
+                        <span className="inline-flex items-center gap-1 text-xs bg-sky-500/10 border border-sky-500/20 text-sky-400 rounded-full px-2 py-0.5">
+                          <Cloud className="w-3 h-3" />
+                          {prediction.weatherData.tempF}°F · {prediction.weatherData.windMph} mph
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground">{format(new Date(prediction.createdAt), "MMM d, h:mm a")}</span>
+                    </div>
                   </div>
                   <CardTitle className="text-muted-foreground text-xs uppercase tracking-widest">Predicted Winner</CardTitle>
                   <h2 className="text-3xl font-display font-bold text-white text-glow mt-1">{prediction.predictedWinner}</h2>
@@ -328,6 +336,26 @@ export function SportEventDetail() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-6 space-y-5">
+                  {/* Line Movement */}
+                  {prediction.lineMovement && (
+                    <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-4">
+                      <h4 className="text-xs font-bold text-violet-400 uppercase mb-2 flex items-center gap-2">
+                        <TrendingDown className="w-3.5 h-3.5" /> Sharp Money / Line Movement
+                      </h4>
+                      <p className="text-sm text-muted-foreground">{prediction.lineMovement.summary}</p>
+                    </div>
+                  )}
+
+                  {/* Weather detail for outdoor sports */}
+                  {prediction.weatherData && (
+                    <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4">
+                      <h4 className="text-xs font-bold text-sky-400 uppercase mb-2 flex items-center gap-2">
+                        <Cloud className="w-3.5 h-3.5" /> Weather at Venue
+                      </h4>
+                      <p className="text-sm text-muted-foreground">{prediction.weatherData.description}</p>
+                    </div>
+                  )}
+
                   {prediction.recommendedBet && (
                     <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
                       <p className="text-xs font-bold text-amber-400 uppercase mb-1 flex items-center gap-1.5">

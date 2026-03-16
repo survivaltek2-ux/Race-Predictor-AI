@@ -3,7 +3,7 @@ import { useGetRace, useGetRaceEntries, useListPredictions, useGeneratePredictio
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button, Progress } from "@/components/ui";
 import { format } from "date-fns";
-import { ArrowLeft, BrainCircuit, AlertCircle, Info, TrendingUp, DollarSign, Medal, Newspaper } from "lucide-react";
+import { ArrowLeft, BrainCircuit, AlertCircle, Info, TrendingUp, DollarSign, Medal, Newspaper, Cloud, TrendingDown } from "lucide-react";
 import { formatCurrency, cn } from "@/lib/utils";
 import { NewsPanel } from "@/components/NewsPanel";
 
@@ -179,7 +179,15 @@ export function RaceDetail() {
                       <Badge variant="default" className="bg-primary text-primary-foreground border-transparent">
                         <BrainCircuit className="w-3 h-3 mr-1" /> AI Generated
                       </Badge>
-                      <span className="text-xs text-muted-foreground">{format(new Date(prediction.createdAt), 'MMM d, h:mm a')}</span>
+                      <div className="flex items-center gap-2">
+                        {prediction.weatherData && (
+                          <span className="inline-flex items-center gap-1 text-xs bg-sky-500/10 border border-sky-500/20 text-sky-400 rounded-full px-2 py-0.5">
+                            <Cloud className="w-3 h-3" />
+                            {prediction.weatherData.tempF}°F · {prediction.weatherData.conditions} · {prediction.weatherData.windMph} mph wind
+                          </span>
+                        )}
+                        <span className="text-xs text-muted-foreground">{format(new Date(prediction.createdAt), 'MMM d, h:mm a')}</span>
+                      </div>
                     </div>
                     <CardTitle className="text-muted-foreground text-sm uppercase tracking-widest font-sans font-bold">Predicted Winner</CardTitle>
                     <div className="mt-2">

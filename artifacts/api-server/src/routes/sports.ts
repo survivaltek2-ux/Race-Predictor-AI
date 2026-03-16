@@ -3,6 +3,7 @@ import { db, sportsPredictionsTable, sportsEventsTable } from "@workspace/db";
 import { eq, desc, and, or } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { fetchTeamNews } from "../utils/news";
+import { fetchWeather, getVenueCoords, buildWeatherPromptSection, OUTDOOR_SPORT_KEYS } from "../utils/weather";
 
 const router: IRouter = Router();
 
@@ -55,6 +56,35 @@ router.get("/sports/events", async (req, res) => {
   }
 });
 
+function computeLineMovement(openingOdds: any, currentOdds: any): { summary: string; movements: any[] } | null {
+  try {
+    const openBook = openingOdds?.bookmakers?.[0];
+    const currBook = currentOdds?.bookmakers?.[0];
+    if (!openBook || !currBook) return null;
+    const openH2H = openBook.markets?.find((m: any) => m.key === "h2h");
+    const currH2H = currBook.markets?.find((m: any) => m.key === "h2h");
+    if (!openH2H || !currH2H) return null;
+    const movements: any[] = [];
+    for (const outcome of currH2H.outcomes) {
+      const open = openH2H.outcomes.find((o: any) => o.name === outcome.name);
+      if (!open) continue;
+      const change = outcome.price - open.price;
+      movements.push({ team: outcome.name, opening: open.price, current: outcome.price, change });
+    }
+    const significant = movements.filter((m) => Math.abs(m.change) >= 5);
+    if (significant.length === 0) return null;
+    const lines = significant.map((m) => {
+      const dir = m.change < 0 ? "shortened" : "drifted";
+      return `${m.team}: ${m.opening > 0 ? "+" : ""}${m.opening} → ${m.current > 0 ? "+" : ""}${m.current} (${dir} ${Math.abs(m.change)} pts)`;
+    });
+    const sharpTeam = significant.sort((a: any, b: any) => Math.abs(b.change) - Math.abs(a.change))[0];
+    const summary = `Line movement: ${lines.join("; ")} — sharp action likely on ${sharpTeam.change < 0 ? sharpTeam.team : significant.find((m: any) => m.team !== sharpTeam.team)?.team ?? sharpTeam.team}`;
+    return { summary, movements };
+  } catch {
+    return null;
+  }
+}
+
 router.post("/sports/predictions", async (req, res) => {
   try {
     const { eventId, sportKey, sportTitle, homeTeam, awayTeam, commenceTime, oddsData } = req.body;
@@ -74,12 +104,49 @@ router.post("/sports/predictions", async (req, res) => {
       return res.json(formatSportsPrediction(existing[0]));
     }
 
+    // Upsert event to track opening odds (first time we see this event = opening line)
+    const oddsStr = JSON.stringify(oddsData ?? {});
+    const storedEvent = await db
+      .select()
+      .from(sportsEventsTable)
+      .where(eq(sportsEventsTable.externalId, eventId))
+      .limit(1);
+
+    let openingOdds: any = null;
+    if (storedEvent.length === 0) {
+      await db.insert(sportsEventsTable).values({
+        externalId: eventId,
+        sportKey,
+        sportTitle,
+        homeTeam,
+        awayTeam,
+        commenceTime: new Date(commenceTime),
+        oddsJson: oddsStr,
+        openingOddsJson: oddsStr,
+      });
+      openingOdds = oddsData;
+    } else {
+      const row = storedEvent[0];
+      openingOdds = row.openingOddsJson ? JSON.parse(row.openingOddsJson) : oddsData;
+      await db
+        .update(sportsEventsTable)
+        .set({ oddsJson: oddsStr })
+        .where(eq(sportsEventsTable.externalId, eventId));
+    }
+
+    const lineMovement = computeLineMovement(openingOdds, oddsData);
+
     const oddsLines = oddsData?.bookmakers?.slice(0, 3).map((b: any) => {
       const market = b.markets?.find((m: any) => m.key === "h2h");
       if (!market) return null;
       const outcomes = market.outcomes.map((o: any) => `${o.name}: ${o.price > 0 ? "+" : ""}${o.price}`).join(", ");
       return `${b.title}: ${outcomes}`;
     }).filter(Boolean).join("\n") || "No odds available";
+
+    // Fetch weather for outdoor sports
+    const venueCoords = getVenueCoords(homeTeam, sportKey);
+    const weatherResult = venueCoords ? await fetchWeather(venueCoords[0], venueCoords[1]) : null;
+    const weatherSection = weatherResult ? buildWeatherPromptSection(weatherResult, "sports") : null;
 
     // --- Build historical context ---
     // 1. Overall accuracy for this sport
@@ -163,15 +230,18 @@ DATE: ${new Date(commenceTime).toLocaleDateString("en-US", { weekday: "long", mo
 
 CURRENT ODDS (American format):
 ${oddsLines}
+${lineMovement ? `\nODDS LINE MOVEMENT (opening → current):\n${lineMovement.summary}\nInstruction: Sharp line movement is a strong signal — the side the money is on is likely the sharper side. Factor this into your pick and confidence.\n` : ""}
+${weatherSection ? `\n${weatherSection}\n` : ""}
 ${newsSection ? `\n${newsSection}\n\nNEWS ANALYSIS INSTRUCTIONS — do this FIRST before picking:\nFor each news headline above, determine:\n  • Which team is affected (${homeTeam} or ${awayTeam})?\n  • Is the effect positive (momentum, key player back) or negative (injury, suspension, fatigue)?\n  • How much does it shift the probability edge?\nSummarise your findings in the "newsInsights" field — list each meaningful news impact as a concise sentence.` : ""}
 
 ${historicalSection}
 
 PREDICTION INSTRUCTIONS:
-- Let the news analysis above directly shape your pick and confidence
+- Analyze in this order: (1) line movement, (2) weather impact, (3) news, (4) historical model performance
+- Line movement is the highest-signal factor — if sharp money moved the line, follow it unless news contradicts
+- For outdoor sports in bad weather, lean toward the running game / lower totals / home team advantage
 - If a key player is injured or suspended, lower confidence for that team significantly
-- If recent form news favors one side, factor that into confidence
-- Use the historical record to further calibrate — reduce confidence if the model has been overconfident
+- Use the historical record to calibrate confidence — reduce if the model has been overconfident
 - Your confidence must reflect genuine win probability, not wishful thinking
 
 Respond ONLY with valid JSON (no markdown):
@@ -213,6 +283,8 @@ Respond ONLY with valid JSON (no markdown):
         valueSide: parsed.valueSide || "",
         newsInsights: parsed.newsInsights || [],
         oddsAtPrediction: oddsData,
+        weatherData: weatherResult ?? null,
+        lineMovement: lineMovement ?? null,
       }),
     }).returning();
 
@@ -297,6 +369,8 @@ function formatSportsPrediction(p: any) {
     recommendedBet: analysis.recommendedBet || "",
     valueSide: analysis.valueSide || "",
     newsInsights: analysis.newsInsights || [],
+    weatherData: analysis.weatherData ?? null,
+    lineMovement: analysis.lineMovement ?? null,
     wasCorrect: p.wasCorrect ?? null,
     actualWinner: p.actualWinner ?? null,
     createdAt: p.createdAt,
