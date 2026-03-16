@@ -1,14 +1,15 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, Flag, Rabbit, History, BrainCircuit } from "lucide-react";
+import { LayoutDashboard, Flag, Rabbit, History, BrainCircuit, Tv2 } from "lucide-react";
 import { useGetPredictionStats } from "@workspace/api-client-react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/races", label: "Races", icon: Flag },
+  { href: "/races", label: "Horse Racing", icon: Flag },
   { href: "/horses", label: "Horses", icon: Rabbit },
-  { href: "/predictions", label: "AI History", icon: History },
+  { href: "/predictions", label: "Racing Picks", icon: History },
+  { href: "/sports", label: "All Sports", icon: Tv2 },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {

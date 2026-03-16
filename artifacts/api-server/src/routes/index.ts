@@ -4,6 +4,7 @@ import tracksRouter from "./tracks";
 import horsesRouter from "./horses";
 import racesRouter from "./races";
 import predictionsRouter from "./predictions";
+import sportsRouter from "./sports";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use(tracksRouter);
 router.use(horsesRouter);
 router.use(racesRouter);
 router.use(predictionsRouter);
+router.use(sportsRouter);
 
 export default router;

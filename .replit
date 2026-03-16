@@ -24,3 +24,8 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+ODDS_API_KEY = "f790059e4bf2b597eeb7b630d60fc8cd"
