@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, predictionsTable, racesTable, horsesTable, raceEntriesTable, tracksTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, ne } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
 
 const router: IRouter = Router();
@@ -98,7 +98,84 @@ router.post("/predictions/generate", async (req, res) => {
       )
       .join("\n");
 
-    const prompt = `You are an expert horse racing analyst with 30 years of experience handicapping US races. Analyze this race and provide your predictions.
+    // --- Build historical context ---
+    // 1. Overall model accuracy
+    const allPastPredictions = await db
+      .select({ wasCorrect: predictionsTable.wasCorrect, confidenceScore: predictionsTable.confidenceScore })
+      .from(predictionsTable)
+      .where(ne(predictionsTable.raceId, raceId));
+
+    const resolvedPast = allPastPredictions.filter((p) => p.wasCorrect !== null);
+    const overallAccuracy = resolvedPast.length > 0
+      ? ((resolvedPast.filter((p) => p.wasCorrect).length / resolvedPast.length) * 100).toFixed(1)
+      : null;
+    const avgConfidence = resolvedPast.length > 0
+      ? (resolvedPast.reduce((s, p) => s + p.confidenceScore, 0) / resolvedPast.length * 100).toFixed(1)
+      : null;
+
+    // 2. Per-horse history at this track/surface
+    const horseIds = entries.map((e) => e.horseId);
+    const horsePastPredictions = await Promise.all(
+      horseIds.map(async (horseId) => {
+        const rows = await db
+          .select({
+            wasCorrect: predictionsTable.wasCorrect,
+            confidenceScore: predictionsTable.confidenceScore,
+            surface: racesTable.surface,
+            trackName: tracksTable.name,
+            predictedWinnerId: predictionsTable.predictedWinnerId,
+          })
+          .from(predictionsTable)
+          .innerJoin(racesTable, eq(predictionsTable.raceId, racesTable.id))
+          .innerJoin(tracksTable, eq(racesTable.trackId, tracksTable.id))
+          .where(eq(predictionsTable.predictedWinnerId, horseId))
+          .orderBy(desc(predictionsTable.createdAt))
+          .limit(10);
+        return { horseId, rows };
+      })
+    );
+
+    // Build per-horse summary
+    const horseHistoryLines = horsePastPredictions
+      .map(({ horseId, rows }) => {
+        const entry = entries.find((e) => e.horseId === horseId);
+        if (!entry || rows.length === 0) return null;
+        const resolved = rows.filter((r) => r.wasCorrect !== null);
+        if (resolved.length === 0) return `  - ${entry.horseName}: Model picked this horse ${rows.length}x, no results recorded yet`;
+        const wins = resolved.filter((r) => r.wasCorrect).length;
+        const sameSurface = resolved.filter((r) => r.surface === race.surface);
+        const surfaceWins = sameSurface.filter((r) => r.wasCorrect).length;
+        let line = `  - ${entry.horseName}: Model picked ${wins}/${resolved.length} correct (${((wins / resolved.length) * 100).toFixed(0)}% hit rate)`;
+        if (sameSurface.length > 0) line += `, ${surfaceWins}/${sameSurface.length} on ${race.surface}`;
+        return line;
+      })
+      .filter(Boolean)
+      .join("\n");
+
+    // 3. Track-specific accuracy
+    const trackPredictions = await db
+      .select({ wasCorrect: predictionsTable.wasCorrect })
+      .from(predictionsTable)
+      .innerJoin(racesTable, eq(predictionsTable.raceId, racesTable.id))
+      .innerJoin(tracksTable, eq(racesTable.trackId, tracksTable.id))
+      .where(eq(tracksTable.name, race.trackName));
+    const trackResolved = trackPredictions.filter((p) => p.wasCorrect !== null);
+    const trackAccuracy = trackResolved.length > 0
+      ? ((trackResolved.filter((p) => p.wasCorrect).length / trackResolved.length) * 100).toFixed(0)
+      : null;
+
+    const historicalSection = [
+      "MODEL HISTORICAL PERFORMANCE (use this to calibrate confidence — where the model has been wrong before, adjust accordingly):",
+      overallAccuracy !== null
+        ? `  - Overall accuracy: ${overallAccuracy}% correct from ${resolvedPast.length} resolved predictions (avg confidence used: ${avgConfidence}%)`
+        : "  - No resolved predictions yet (this is an early prediction — be appropriately conservative with confidence scores)",
+      trackAccuracy !== null
+        ? `  - At ${race.trackName}: ${trackAccuracy}% accuracy from ${trackResolved.length} resolved picks`
+        : `  - No prior picks at ${race.trackName}`,
+      horseHistoryLines ? `  Per-horse model record:\n${horseHistoryLines}` : "  - No prior picks on horses in this field",
+    ].join("\n");
+
+    const prompt = `You are an expert horse racing analyst with 30 years of experience handicapping US races. You are also reviewing your own model's past performance to improve your predictions.
 
 RACE INFO:
 - Race: ${race.raceName} at ${race.trackName}
@@ -111,35 +188,25 @@ RACE INFO:
 HORSES ENTERED:
 ${entriesText}
 
+${historicalSection}
+
+INSTRUCTIONS:
+- Use the historical performance data above to calibrate your confidence scores
+- If the model has been overconfident in the past (avg confidence > accuracy %), reduce confidence scores
+- If a horse has a strong model hit rate in similar conditions, that is a positive signal
+- If the model has struggled at this track or surface, widen the confidence gap between picks
+
 Provide your analysis in this exact JSON format (no markdown, just JSON):
 {
   "topPicks": [
-    {
-      "rank": 1,
-      "horseName": "Horse Name",
-      "postPosition": 1,
-      "confidenceScore": 0.72,
-      "keyFactors": ["Factor 1", "Factor 2", "Factor 3"]
-    },
-    {
-      "rank": 2,
-      "horseName": "Horse Name",
-      "postPosition": 2,
-      "confidenceScore": 0.55,
-      "keyFactors": ["Factor 1", "Factor 2"]
-    },
-    {
-      "rank": 3,
-      "horseName": "Horse Name",
-      "postPosition": 3,
-      "confidenceScore": 0.40,
-      "keyFactors": ["Factor 1", "Factor 2"]
-    }
+    { "rank": 1, "horseName": "Horse Name", "postPosition": 1, "confidenceScore": 0.72, "keyFactors": ["Factor 1", "Factor 2", "Factor 3"] },
+    { "rank": 2, "horseName": "Horse Name", "postPosition": 2, "confidenceScore": 0.55, "keyFactors": ["Factor 1", "Factor 2"] },
+    { "rank": 3, "horseName": "Horse Name", "postPosition": 3, "confidenceScore": 0.40, "keyFactors": ["Factor 1", "Factor 2"] }
   ],
-  "reasoning": "2-3 sentence expert analysis explaining why you picked the winner and the key factors that influenced your decision."
+  "reasoning": "2-4 sentence expert analysis explaining your pick and how historical model performance influenced your confidence."
 }
 
-Focus on: recent form, class level, distance/surface suitability, jockey/trainer statistics, breeding suitability, and pace analysis.`;
+Focus on: recent form, class level, distance/surface suitability, jockey/trainer statistics, breeding, pace, and how past model performance at this track/with these horses should adjust confidence.`;
 
     const response = await openai.chat.completions.create({
       model: "gpt-5.2",
@@ -209,6 +276,36 @@ Focus on: recent form, class level, distance/surface suitability, jockey/trainer
     });
   } catch (err) {
     console.error("Error generating prediction:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.patch("/predictions/:id/result", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { wasCorrect, actualWinnerName } = req.body;
+
+    if (typeof wasCorrect !== "boolean") {
+      return res.status(400).json({ error: "wasCorrect (boolean) is required" });
+    }
+
+    let actualWinnerId: number | null = null;
+    if (actualWinnerName) {
+      const [horse] = await db.select().from(horsesTable).where(eq(horsesTable.name, actualWinnerName));
+      actualWinnerId = horse?.id ?? null;
+    }
+
+    const [updated] = await db
+      .update(predictionsTable)
+      .set({ wasCorrect, actualWinnerId })
+      .where(eq(predictionsTable.id, id))
+      .returning();
+
+    if (!updated) return res.status(404).json({ error: "Prediction not found" });
+
+    res.json({ success: true, id: updated.id, wasCorrect: updated.wasCorrect });
+  } catch (err) {
+    console.error("Error updating prediction result:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

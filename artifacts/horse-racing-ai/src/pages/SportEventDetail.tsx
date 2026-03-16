@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button, Progress } from "@/components/ui";
 import { format, formatDistanceToNow } from "date-fns";
-import { ArrowLeft, BrainCircuit, TrendingUp, Info, CheckCircle2, AlertCircle, Clock } from "lucide-react";
+import { ArrowLeft, BrainCircuit, TrendingUp, Info, CheckCircle2, XCircle, AlertCircle, Clock, ClipboardCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -14,6 +15,61 @@ function formatOdds(price: number): string {
 function impliedProb(americanOdds: number): number {
   if (americanOdds > 0) return 100 / (americanOdds + 100);
   return Math.abs(americanOdds) / (Math.abs(americanOdds) + 100);
+}
+
+function SportResultRecorder({ predId, homeTeam, awayTeam, onDone }: { predId: number; homeTeam: string; awayTeam: string; onDone: () => void }) {
+  const [step, setStep] = useState<"idle" | "pick-winner">("idle");
+  const mutation = useMutation({
+    mutationFn: async ({ wasCorrect, actualWinner }: { wasCorrect: boolean; actualWinner?: string }) => {
+      const res = await fetch(`${BASE}/api/sports/predictions/${predId}/result`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wasCorrect, actualWinner }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    onSuccess: onDone,
+  });
+
+  if (step === "pick-winner") {
+    return (
+      <div className="border border-border/50 rounded-xl p-4 space-y-3">
+        <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider flex items-center gap-1.5">
+          <ClipboardCheck className="w-3.5 h-3.5" /> Who actually won?
+        </p>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" className="flex-1 border-destructive/40 text-red-400 hover:bg-destructive/10" disabled={mutation.isPending}
+            onClick={() => mutation.mutate({ wasCorrect: false, actualWinner: homeTeam })}>
+            {homeTeam}
+          </Button>
+          <Button size="sm" variant="outline" className="flex-1 border-destructive/40 text-red-400 hover:bg-destructive/10" disabled={mutation.isPending}
+            onClick={() => mutation.mutate({ wasCorrect: false, actualWinner: awayTeam })}>
+            {awayTeam}
+          </Button>
+        </div>
+        <Button size="sm" variant="ghost" className="w-full text-xs" onClick={() => setStep("idle")}>Cancel</Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-amber-500/20 bg-amber-500/5 rounded-xl p-4 space-y-3">
+      <p className="text-xs text-amber-400 uppercase font-bold tracking-wider flex items-center gap-1.5">
+        <ClipboardCheck className="w-3.5 h-3.5" /> Record result to train the AI
+      </p>
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" className="flex-1 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10" disabled={mutation.isPending}
+          onClick={() => mutation.mutate({ wasCorrect: true })}>
+          <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Correct
+        </Button>
+        <Button size="sm" variant="outline" className="flex-1 border-destructive/40 text-red-400 hover:bg-destructive/10"
+          onClick={() => setStep("pick-winner")}>
+          <XCircle className="w-3.5 h-3.5 mr-1" /> Wrong
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 export function SportEventDetail() {
@@ -294,6 +350,25 @@ export function SportEventDetail() {
                     </h4>
                     <p className="text-sm text-muted-foreground leading-relaxed">{prediction.reasoning}</p>
                   </div>
+
+                  {/* Result Recording */}
+                  {prediction.wasCorrect === null || prediction.wasCorrect === undefined ? (
+                    <SportResultRecorder
+                      predId={prediction.id}
+                      homeTeam={event.home_team}
+                      awayTeam={event.away_team}
+                      onDone={() => queryClient.invalidateQueries({ queryKey: ["sports-predictions", sport] })}
+                    />
+                  ) : (
+                    <div className={cn("rounded-xl p-3 border text-sm font-medium flex items-center gap-2",
+                      prediction.wasCorrect
+                        ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                        : "bg-destructive/10 border-destructive/20 text-red-400"
+                    )}>
+                      {prediction.wasCorrect ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                      {prediction.wasCorrect ? "Prediction was correct!" : `Miss — ${prediction.actualWinner ? `Won by: ${prediction.actualWinner}` : "result recorded"}`}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}

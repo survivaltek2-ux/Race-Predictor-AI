@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, sportsPredictionsTable, sportsEventsTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, or } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
 
 const router: IRouter = Router();
@@ -66,25 +66,100 @@ router.post("/sports/predictions", async (req, res) => {
       return `${b.title}: ${outcomes}`;
     }).filter(Boolean).join("\n") || "No odds available";
 
-    const prompt = `You are an expert sports analyst and betting handicapper. Analyze this upcoming ${sportTitle} matchup and provide a prediction.
+    // --- Build historical context ---
+    // 1. Overall accuracy for this sport
+    const allSportPreds = await db
+      .select({ wasCorrect: sportsPredictionsTable.wasCorrect, confidenceScore: sportsPredictionsTable.confidenceScore, predictedWinner: sportsPredictionsTable.predictedWinner })
+      .from(sportsPredictionsTable)
+      .where(eq(sportsPredictionsTable.sportKey, sportKey));
+
+    const resolvedSport = allSportPreds.filter((p) => p.wasCorrect !== null);
+    const sportCorrect = resolvedSport.filter((p) => p.wasCorrect).length;
+    const sportAccuracy = resolvedSport.length > 0
+      ? ((sportCorrect / resolvedSport.length) * 100).toFixed(1)
+      : null;
+    const sportAvgConf = resolvedSport.length > 0
+      ? (resolvedSport.reduce((s, p) => s + p.confidenceScore, 0) / resolvedSport.length * 100).toFixed(1)
+      : null;
+
+    // 2. Past matchups involving these specific teams
+    const teamPreds = await db
+      .select({
+        homeTeam: sportsPredictionsTable.homeTeam,
+        awayTeam: sportsPredictionsTable.awayTeam,
+        predictedWinner: sportsPredictionsTable.predictedWinner,
+        wasCorrect: sportsPredictionsTable.wasCorrect,
+        actualWinner: sportsPredictionsTable.actualWinner,
+        confidenceScore: sportsPredictionsTable.confidenceScore,
+        commenceTime: sportsPredictionsTable.commenceTime,
+      })
+      .from(sportsPredictionsTable)
+      .where(
+        and(
+          eq(sportsPredictionsTable.sportKey, sportKey),
+          or(
+            eq(sportsPredictionsTable.homeTeam, homeTeam),
+            eq(sportsPredictionsTable.awayTeam, homeTeam),
+            eq(sportsPredictionsTable.homeTeam, awayTeam),
+            eq(sportsPredictionsTable.awayTeam, awayTeam),
+          )
+        )
+      )
+      .orderBy(desc(sportsPredictionsTable.commenceTime))
+      .limit(10);
+
+    const teamHistoryLines = teamPreds.map((p) => {
+      const matchup = `${p.awayTeam} @ ${p.homeTeam}`;
+      const dateStr = new Date(p.commenceTime).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const outcome = p.wasCorrect === null
+        ? "(pending)"
+        : p.wasCorrect
+          ? `✓ CORRECT (${p.actualWinner ?? "confirmed"})`
+          : `✗ WRONG — actual winner: ${p.actualWinner ?? "unknown"}`;
+      return `  - ${dateStr}: ${matchup} → Picked: ${p.predictedWinner} (${Math.round(p.confidenceScore * 100)}% confidence) → ${outcome}`;
+    }).join("\n");
+
+    // 3. Home/away team win rates from resolved predictions
+    const homeTeamPicks = resolvedSport.filter((p: any) => p.predictedWinner === homeTeam);
+    const awayTeamPicks = resolvedSport.filter((p: any) => p.predictedWinner === awayTeam);
+
+    const historicalSection = [
+      `MODEL HISTORICAL PERFORMANCE FOR ${sportTitle.toUpperCase()} (calibrate your confidence based on this):`,
+      sportAccuracy !== null
+        ? `  - Overall ${sportTitle} accuracy: ${sportAccuracy}% from ${resolvedSport.length} resolved predictions (avg confidence used: ${sportAvgConf}%)`
+        : `  - No resolved ${sportTitle} predictions yet — use conservative confidence scores`,
+      sportAccuracy !== null && Number(sportAccuracy) < Number(sportAvgConf)
+        ? `  ⚠ Model has been OVERCONFIDENT (accuracy ${sportAccuracy}% < avg confidence ${sportAvgConf}%) — reduce confidence scores accordingly`
+        : sportAccuracy !== null
+          ? `  ✓ Model confidence is well-calibrated`
+          : "",
+      homeTeamPicks.length > 0 ? `  - ${homeTeam} picked ${homeTeamPicks.length}x, correct ${homeTeamPicks.filter((p: any) => p.wasCorrect).length} times` : "",
+      awayTeamPicks.length > 0 ? `  - ${awayTeam} picked ${awayTeamPicks.length}x, correct ${awayTeamPicks.filter((p: any) => p.wasCorrect).length} times` : "",
+      teamPreds.length > 0 ? `\n  Prior predictions involving these teams:\n${teamHistoryLines}` : "  - No prior predictions involving these teams",
+    ].filter(Boolean).join("\n");
+
+    const prompt = `You are an expert sports analyst and betting handicapper. You are reviewing your own model's historical performance to make a better-calibrated prediction.
 
 MATCHUP: ${awayTeam} @ ${homeTeam}
+SPORT: ${sportTitle}
 DATE: ${new Date(commenceTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
 
 CURRENT ODDS (American format):
 ${oddsLines}
 
-Provide a structured prediction with:
-1. Predicted winner (must be exactly "${homeTeam}" or "${awayTeam}")
-2. Confidence score (0.0-1.0)
-3. Detailed reasoning (2-4 sentences) covering team form, matchup advantages, and value assessment
-4. Key factors as a list
+${historicalSection}
 
-Respond ONLY with valid JSON:
+INSTRUCTIONS:
+- Use the historical record to adjust your confidence — if the model has been overconfident, lower your scores
+- If you've previously picked a team and been wrong, factor that into your reasoning
+- If the model has no history for this sport, be conservative with confidence scores
+- Your confidence should reflect genuine probability, not wishful thinking
+
+Provide a structured prediction. Respond ONLY with valid JSON:
 {
-  "predictedWinner": "Team Name",
+  "predictedWinner": "Team Name (must be exactly '${homeTeam}' or '${awayTeam}')",
   "confidenceScore": 0.72,
-  "reasoning": "Your detailed analysis here...",
+  "reasoning": "2-4 sentences covering matchup advantages, historical model performance context, and value assessment",
   "keyFactors": ["factor 1", "factor 2", "factor 3"],
   "recommendedBet": "Brief betting recommendation",
   "valueSide": "${homeTeam} or ${awayTeam}"
@@ -140,6 +215,30 @@ router.get("/sports/predictions", async (req, res) => {
     res.json(rows.map(formatSportsPrediction));
   } catch (err) {
     console.error("Error fetching sports predictions:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.patch("/sports/predictions/:id/result", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { wasCorrect, actualWinner } = req.body;
+
+    if (typeof wasCorrect !== "boolean") {
+      return res.status(400).json({ error: "wasCorrect (boolean) is required" });
+    }
+
+    const [updated] = await db
+      .update(sportsPredictionsTable)
+      .set({ wasCorrect, actualWinner: actualWinner ?? null })
+      .where(eq(sportsPredictionsTable.id, id))
+      .returning();
+
+    if (!updated) return res.status(404).json({ error: "Prediction not found" });
+
+    res.json({ success: true, id: updated.id, wasCorrect: updated.wasCorrect });
+  } catch (err) {
+    console.error("Error updating sports prediction result:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
