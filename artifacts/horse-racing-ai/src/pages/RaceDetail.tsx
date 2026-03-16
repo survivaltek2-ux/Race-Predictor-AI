@@ -3,7 +3,7 @@ import { useGetRace, useGetRaceEntries, useListPredictions, useGeneratePredictio
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button, Progress } from "@/components/ui";
 import { format } from "date-fns";
-import { ArrowLeft, BrainCircuit, AlertCircle, Info, TrendingUp, DollarSign, Medal } from "lucide-react";
+import { ArrowLeft, BrainCircuit, AlertCircle, Info, TrendingUp, DollarSign, Medal, Newspaper } from "lucide-react";
 import { formatCurrency, cn } from "@/lib/utils";
 import { NewsPanel } from "@/components/NewsPanel";
 
@@ -221,6 +221,23 @@ export function RaceDetail() {
                         ))}
                       </div>
                     </div>
+
+                    {/* News Impact */}
+                    {prediction.newsInsights?.length > 0 && (
+                      <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 space-y-2">
+                        <h4 className="text-xs font-bold text-blue-400 uppercase mb-2 flex items-center gap-2">
+                          <Newspaper className="w-3.5 h-3.5" /> News Impact on Prediction
+                        </h4>
+                        <ul className="space-y-1.5">
+                          {prediction.newsInsights.map((insight: string, i: number) => (
+                            <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                              <span className="text-blue-400 mt-0.5 shrink-0">•</span>
+                              {insight}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
 
                     {/* Reasoning */}
                     <div className="bg-primary/5 rounded-xl p-4 border border-primary/10">

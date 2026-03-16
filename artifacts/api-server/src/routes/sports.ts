@@ -155,7 +155,7 @@ router.post("/sports/predictions", async (req, res) => {
 
     const newsSection = await fetchTeamNews(homeTeam, awayTeam, sportTitle);
 
-    const prompt = `You are an expert sports analyst and betting handicapper. You are reviewing your own model's historical performance to make a better-calibrated prediction.
+    const prompt = `You are an expert sports analyst and betting handicapper with access to live news and historical model data.
 
 MATCHUP: ${awayTeam} @ ${homeTeam}
 SPORT: ${sportTitle}
@@ -163,31 +163,32 @@ DATE: ${new Date(commenceTime).toLocaleDateString("en-US", { weekday: "long", mo
 
 CURRENT ODDS (American format):
 ${oddsLines}
+${newsSection ? `\n${newsSection}\n\nNEWS ANALYSIS INSTRUCTIONS — do this FIRST before picking:\nFor each news headline above, determine:\n  • Which team is affected (${homeTeam} or ${awayTeam})?\n  • Is the effect positive (momentum, key player back) or negative (injury, suspension, fatigue)?\n  • How much does it shift the probability edge?\nSummarise your findings in the "newsInsights" field — list each meaningful news impact as a concise sentence.` : ""}
 
 ${historicalSection}
-${newsSection ? `\n${newsSection}` : ""}
 
-INSTRUCTIONS:
-- Use the historical record to adjust your confidence — if the model has been overconfident, lower your scores
-- If you've previously picked a team and been wrong, factor that into your reasoning
-- If the model has no history for this sport, be conservative with confidence scores
-- Analyze the news section for injuries, suspensions, roster changes, recent form, or travel fatigue that shifts the edge
-- Your confidence should reflect genuine probability, not wishful thinking
+PREDICTION INSTRUCTIONS:
+- Let the news analysis above directly shape your pick and confidence
+- If a key player is injured or suspended, lower confidence for that team significantly
+- If recent form news favors one side, factor that into confidence
+- Use the historical record to further calibrate — reduce confidence if the model has been overconfident
+- Your confidence must reflect genuine win probability, not wishful thinking
 
-Provide a structured prediction. Respond ONLY with valid JSON:
+Respond ONLY with valid JSON (no markdown):
 {
   "predictedWinner": "Team Name (must be exactly '${homeTeam}' or '${awayTeam}')",
   "confidenceScore": 0.72,
-  "reasoning": "2-4 sentences covering matchup advantages, historical model performance context, and value assessment",
-  "keyFactors": ["factor 1", "factor 2", "factor 3"],
+  "reasoning": "3-5 sentences: lead with the single most important news finding, then cover odds value and historical calibration",
+  "keyFactors": ["factor 1 (can reference a news item)", "factor 2", "factor 3"],
   "recommendedBet": "Brief betting recommendation",
-  "valueSide": "${homeTeam} or ${awayTeam}"
+  "valueSide": "${homeTeam} or ${awayTeam}",
+  "newsInsights": ["Specific impact from news item 1", "Specific impact from news item 2"]
 }`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-5.2",
       messages: [{ role: "user", content: prompt }],
-      max_completion_tokens: 1024,
+      max_completion_tokens: 2048,
       response_format: { type: "json_object" },
     });
 
@@ -210,6 +211,7 @@ Provide a structured prediction. Respond ONLY with valid JSON:
         keyFactors: parsed.keyFactors || [],
         recommendedBet: parsed.recommendedBet || "",
         valueSide: parsed.valueSide || "",
+        newsInsights: parsed.newsInsights || [],
         oddsAtPrediction: oddsData,
       }),
     }).returning();
@@ -294,6 +296,7 @@ function formatSportsPrediction(p: any) {
     keyFactors: analysis.keyFactors || [],
     recommendedBet: analysis.recommendedBet || "",
     valueSide: analysis.valueSide || "",
+    newsInsights: analysis.newsInsights || [],
     wasCorrect: p.wasCorrect ?? null,
     actualWinner: p.actualWinner ?? null,
     createdAt: p.createdAt,

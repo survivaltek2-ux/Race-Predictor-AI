@@ -193,26 +193,26 @@ HORSES ENTERED:
 ${entriesText}
 
 ${historicalSection}
-${newsSection ? `\n${newsSection}` : ""}
+${newsSection ? `\n${newsSection}\n\nNEWS ANALYSIS INSTRUCTIONS — complete this BEFORE selecting picks:\nFor each headline above, identify:\n  • Which horse(s) or jockey is mentioned (if any)?\n  • Does the news suggest a scratch, injury, track condition change, or form reversal?\n  • Does it improve or reduce a horse's chances in THIS race?\nCapture each meaningful finding in the "newsInsights" field.` : ""}
 
-INSTRUCTIONS:
-- Use the historical performance data above to calibrate your confidence scores
-- Check the news section for injuries, jockey changes, trainer notes, or track condition updates that may affect the result
-- If the model has been overconfident in the past (avg confidence > accuracy %), reduce confidence scores
-- If a horse has a strong model hit rate in similar conditions, that is a positive signal
-- If the model has struggled at this track or surface, widen the confidence gap between picks
+PREDICTION INSTRUCTIONS:
+- Let the news analysis directly influence your pick — a late scratch or injury report outweighs historical stats
+- Use the historical performance data to calibrate confidence — reduce confidence where the model has been wrong
+- A horse with strong model hit rate in similar surface/distance conditions is a positive signal
+- If the model has struggled at this track, widen the confidence gap between your top pick and the rest
 
 Provide your analysis in this exact JSON format (no markdown, just JSON):
 {
   "topPicks": [
-    { "rank": 1, "horseName": "Horse Name", "postPosition": 1, "confidenceScore": 0.72, "keyFactors": ["Factor 1", "Factor 2", "Factor 3"] },
+    { "rank": 1, "horseName": "Horse Name", "postPosition": 1, "confidenceScore": 0.72, "keyFactors": ["Factor 1 (can cite news)", "Factor 2", "Factor 3"] },
     { "rank": 2, "horseName": "Horse Name", "postPosition": 2, "confidenceScore": 0.55, "keyFactors": ["Factor 1", "Factor 2"] },
     { "rank": 3, "horseName": "Horse Name", "postPosition": 3, "confidenceScore": 0.40, "keyFactors": ["Factor 1", "Factor 2"] }
   ],
-  "reasoning": "2-4 sentence expert analysis explaining your pick and how historical model performance influenced your confidence."
+  "reasoning": "3-5 sentences: lead with the single most impactful news finding, then cover form, distance/surface fit, and model calibration.",
+  "newsInsights": ["How news item 1 affects a specific horse or the race", "How news item 2 shifts the edge"]
 }
 
-Focus on: recent form, class level, distance/surface suitability, jockey/trainer statistics, breeding, pace, and how past model performance at this track/with these horses should adjust confidence.`;
+Focus on: recent form, class level, distance/surface suitability, jockey/trainer statistics, breeding, pace, news-driven factors, and model calibration.`;
 
     const response = await openai.chat.completions.create({
       model: "gpt-5.2",
@@ -258,7 +258,7 @@ Focus on: recent form, class level, distance/surface suitability, jockey/trainer
         predictedWinnerId: winnerEntry.horseId,
         confidenceScore: winner.confidenceScore,
         reasoning: aiResult.reasoning ?? "AI analysis complete.",
-        topPicksJson: JSON.stringify(topPicksWithIds),
+        topPicksJson: JSON.stringify({ picks: topPicksWithIds, newsInsights: aiResult.newsInsights ?? [] }),
       })
       .returning();
 
@@ -358,9 +358,17 @@ router.get("/predictions/stats", async (req, res) => {
 });
 
 function formatPrediction(p: any, predictedWinnerName: string, actualWinnerName: string | null) {
-  let topPicks = [];
+  let topPicks: any[] = [];
+  let newsInsights: string[] = [];
   try {
-    topPicks = JSON.parse(p.topPicksJson ?? "[]");
+    const raw = JSON.parse(p.topPicksJson ?? "[]");
+    // Support both old format (array) and new format ({ picks, newsInsights })
+    if (Array.isArray(raw)) {
+      topPicks = raw;
+    } else {
+      topPicks = raw.picks ?? [];
+      newsInsights = raw.newsInsights ?? [];
+    }
   } catch {}
   return {
     id: p.id,
@@ -373,6 +381,7 @@ function formatPrediction(p: any, predictedWinnerName: string, actualWinnerName:
     confidenceScore: p.confidenceScore,
     reasoning: p.reasoning,
     topPicks,
+    newsInsights,
     wasCorrect: p.wasCorrect ?? null,
     actualWinnerId: p.actualWinnerId ?? null,
     actualWinnerName,
