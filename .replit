@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "postgresql-16"]
 
 [[artifacts]]
 id = "artifacts/api-server"
@@ -29,3 +29,6 @@ timeoutMs = 20000
 
 [userenv.shared]
 ODDS_API_KEY = "f790059e4bf2b597eeb7b630d60fc8cd"
+
+[nix]
+channel = "stable-25_05"
