@@ -132,20 +132,47 @@ function parseRssItems(xml: string): NewsItem[] {
   return items;
 }
 
+// Realistic browser User-Agent — cloud IPs are frequently blocked without one
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
 // ─── Public fetch helpers ─────────────────────────────────────────────────────
 export async function fetchNews(query: string, maxResults = 5): Promise<NewsItem[]> {
-  try {
-    const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; SportsPredictor/1.0)" },
-      signal: AbortSignal.timeout(6000),
-    });
-    if (!res.ok) return [];
-    const xml = await res.text();
-    return parseRssItems(xml).slice(0, maxResults * 3); // fetch extra so we have room to filter
-  } catch {
-    return [];
+  const encodedQuery = encodeURIComponent(query);
+
+  // Try multiple sources in order — if one is blocked in the production
+  // environment, the next one picks up
+  const sources = [
+    `https://news.google.com/rss/search?q=${encodedQuery}&hl=en-US&gl=US&ceid=US:en`,
+    `https://www.bing.com/news/search?q=${encodedQuery}&format=rss&setmkt=en-US`,
+    `https://feeds.bbci.co.uk/sport/rss.xml`, // BBC Sports (unfiltered fallback)
+  ];
+
+  const headers = {
+    "User-Agent": UA,
+    "Accept": "application/rss+xml, application/xml, text/xml, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+  };
+
+  for (const url of sources) {
+    try {
+      const res = await fetch(url, {
+        headers,
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) {
+        console.error(`[news] ${new URL(url).hostname} returned HTTP ${res.status} for query "${query}"`);
+        continue;
+      }
+      const xml = await res.text();
+      const items = parseRssItems(xml).slice(0, maxResults * 3);
+      if (items.length > 0) return items;
+      console.error(`[news] ${new URL(url).hostname} returned 0 items for query "${query}" — trying next source`);
+    } catch (err) {
+      console.error(`[news] fetch failed for ${url}: ${(err as Error).message}`);
+    }
   }
+
+  return [];
 }
 
 function dedup(items: NewsItem[]): NewsItem[] {
