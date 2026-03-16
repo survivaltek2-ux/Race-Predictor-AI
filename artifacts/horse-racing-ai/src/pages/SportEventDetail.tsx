@@ -191,41 +191,111 @@ export function SportEventDetail() {
               {bookmakers.length === 0 ? (
                 <p className="p-6 text-center text-muted-foreground text-sm">No odds available.</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm whitespace-nowrap">
-                    <thead className="bg-secondary/20 text-muted-foreground text-xs uppercase">
-                      <tr>
-                        <th className="px-6 py-4 font-semibold">Bookmaker</th>
-                        <th className="px-6 py-4 font-semibold text-right">{event.away_team}</th>
-                        <th className="px-6 py-4 font-semibold text-right">{event.home_team}</th>
-                        <th className="px-6 py-4 font-semibold text-right">Draw</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/50">
-                      {bookmakers.map((b: any) => {
-                        const h2h = b.markets?.find((m: any) => m.key === "h2h");
-                        const getOdds = (name: string) => h2h?.outcomes?.find((o: any) => o.name === name)?.price ?? null;
-                        const awayOdds = getOdds(event.away_team);
-                        const homeOdds = getOdds(event.home_team);
-                        const drawOdds = h2h?.outcomes?.find((o: any) => o.name === "Draw")?.price ?? null;
+                <div className="space-y-0 divide-y divide-border/30">
+                  {/* Moneyline */}
+                  <div className="overflow-x-auto">
+                    <p className="px-6 pt-4 pb-2 text-xs font-bold text-muted-foreground uppercase tracking-widest">Moneyline</p>
+                    <table className="w-full text-left text-sm whitespace-nowrap">
+                      <thead className="bg-secondary/20 text-muted-foreground text-xs uppercase">
+                        <tr>
+                          <th className="px-6 py-3 font-semibold">Book</th>
+                          <th className="px-6 py-3 font-semibold text-right">{event.away_team}</th>
+                          <th className="px-6 py-3 font-semibold text-right">{event.home_team}</th>
+                          <th className="px-6 py-3 font-semibold text-right">Draw</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {bookmakers.map((b: any) => {
+                          const h2h = b.markets?.find((m: any) => m.key === "h2h");
+                          const getOdds = (name: string) => h2h?.outcomes?.find((o: any) => o.name === name)?.price ?? null;
+                          const awayOdds = getOdds(event.away_team);
+                          const homeOdds = getOdds(event.home_team);
+                          const drawOdds = h2h?.outcomes?.find((o: any) => o.name === "Draw")?.price ?? null;
+                          return (
+                            <tr key={b.key} className="hover:bg-secondary/10 transition-colors">
+                              <td className="px-6 py-3 font-medium text-white">{b.title}</td>
+                              <td className={cn("px-6 py-3 text-right font-mono font-bold", awayOdds !== null && awayOdds > 0 ? "text-emerald-400" : "text-muted-foreground")}>
+                                {awayOdds !== null ? formatOdds(awayOdds) : "–"}
+                              </td>
+                              <td className={cn("px-6 py-3 text-right font-mono font-bold", homeOdds !== null && homeOdds > 0 ? "text-emerald-400" : "text-muted-foreground")}>
+                                {homeOdds !== null ? formatOdds(homeOdds) : "–"}
+                              </td>
+                              <td className="px-6 py-3 text-right font-mono text-muted-foreground">
+                                {drawOdds !== null ? formatOdds(drawOdds) : "–"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
 
-                        return (
-                          <tr key={b.key} className="hover:bg-secondary/10 transition-colors">
-                            <td className="px-6 py-4 font-medium text-white">{b.title}</td>
-                            <td className={cn("px-6 py-4 text-right font-mono font-bold", awayOdds !== null && awayOdds > 0 ? "text-emerald-400" : "text-muted-foreground")}>
-                              {awayOdds !== null ? formatOdds(awayOdds) : "–"}
-                            </td>
-                            <td className={cn("px-6 py-4 text-right font-mono font-bold", homeOdds !== null && homeOdds > 0 ? "text-emerald-400" : "text-muted-foreground")}>
-                              {homeOdds !== null ? formatOdds(homeOdds) : "–"}
-                            </td>
-                            <td className="px-6 py-4 text-right font-mono text-muted-foreground">
-                              {drawOdds !== null ? formatOdds(drawOdds) : "–"}
-                            </td>
+                  {/* Point Spread */}
+                  {bookmakers.some((b: any) => b.markets?.find((m: any) => m.key === "spreads")) && (
+                    <div className="overflow-x-auto">
+                      <p className="px-6 pt-4 pb-2 text-xs font-bold text-muted-foreground uppercase tracking-widest">Point Spread</p>
+                      <table className="w-full text-left text-sm whitespace-nowrap">
+                        <thead className="bg-secondary/20 text-muted-foreground text-xs uppercase">
+                          <tr>
+                            <th className="px-6 py-3 font-semibold">Book</th>
+                            <th className="px-6 py-3 font-semibold text-right">{event.away_team}</th>
+                            <th className="px-6 py-3 font-semibold text-right">{event.home_team}</th>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                        </thead>
+                        <tbody className="divide-y divide-border/50">
+                          {bookmakers.filter((b: any) => b.markets?.find((m: any) => m.key === "spreads")).map((b: any) => {
+                            const sp = b.markets.find((m: any) => m.key === "spreads");
+                            const getSpread = (name: string) => sp?.outcomes?.find((o: any) => o.name === name);
+                            const away = getSpread(event.away_team);
+                            const home = getSpread(event.home_team);
+                            return (
+                              <tr key={b.key} className="hover:bg-secondary/10 transition-colors">
+                                <td className="px-6 py-3 font-medium text-white">{b.title}</td>
+                                <td className="px-6 py-3 text-right font-mono text-muted-foreground">
+                                  {away ? <><span className="text-white font-bold">{away.point > 0 ? "+" : ""}{away.point}</span> <span className="text-xs">({formatOdds(away.price)})</span></> : "–"}
+                                </td>
+                                <td className="px-6 py-3 text-right font-mono text-muted-foreground">
+                                  {home ? <><span className="text-white font-bold">{home.point > 0 ? "+" : ""}{home.point}</span> <span className="text-xs">({formatOdds(home.price)})</span></> : "–"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Totals */}
+                  {bookmakers.some((b: any) => b.markets?.find((m: any) => m.key === "totals")) && (
+                    <div className="overflow-x-auto">
+                      <p className="px-6 pt-4 pb-2 text-xs font-bold text-muted-foreground uppercase tracking-widest">Over / Under</p>
+                      <table className="w-full text-left text-sm whitespace-nowrap">
+                        <thead className="bg-secondary/20 text-muted-foreground text-xs uppercase">
+                          <tr>
+                            <th className="px-6 py-3 font-semibold">Book</th>
+                            <th className="px-6 py-3 font-semibold text-right">Total</th>
+                            <th className="px-6 py-3 font-semibold text-right">Over</th>
+                            <th className="px-6 py-3 font-semibold text-right">Under</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/50">
+                          {bookmakers.filter((b: any) => b.markets?.find((m: any) => m.key === "totals")).map((b: any) => {
+                            const tot = b.markets.find((m: any) => m.key === "totals");
+                            const over = tot?.outcomes?.find((o: any) => o.name === "Over");
+                            const under = tot?.outcomes?.find((o: any) => o.name === "Under");
+                            return (
+                              <tr key={b.key} className="hover:bg-secondary/10 transition-colors">
+                                <td className="px-6 py-3 font-medium text-white">{b.title}</td>
+                                <td className="px-6 py-3 text-right font-mono font-bold text-white">{over?.point ?? under?.point ?? "–"}</td>
+                                <td className="px-6 py-3 text-right font-mono text-emerald-400">{over ? formatOdds(over.price) : "–"}</td>
+                                <td className="px-6 py-3 text-right font-mono text-red-400">{under ? formatOdds(under.price) : "–"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
@@ -355,6 +425,41 @@ export function SportEventDetail() {
                       <p className="text-sm text-muted-foreground">{prediction.weatherData.description}</p>
                     </div>
                   )}
+
+                  {/* Market Snapshot — spread & totals at prediction time */}
+                  {prediction.oddsAtPrediction?.bookmakers?.length > 0 && (() => {
+                    const book = prediction.oddsAtPrediction.bookmakers[0];
+                    const sp = book?.markets?.find((m: any) => m.key === "spreads");
+                    const tot = book?.markets?.find((m: any) => m.key === "totals");
+                    if (!sp && !tot) return null;
+                    const awaySpread = sp?.outcomes?.find((o: any) => o.name === event.away_team);
+                    const homeSpread = sp?.outcomes?.find((o: any) => o.name === event.home_team);
+                    const over = tot?.outcomes?.find((o: any) => o.name === "Over");
+                    const under = tot?.outcomes?.find((o: any) => o.name === "Under");
+                    return (
+                      <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4">
+                        <h4 className="text-xs font-bold text-indigo-400 uppercase mb-3 flex items-center gap-2">
+                          <TrendingUp className="w-3.5 h-3.5" /> Market Snapshot at Prediction ({book.title})
+                        </h4>
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          {awaySpread && homeSpread && (
+                            <div className="space-y-1">
+                              <p className="text-muted-foreground font-semibold uppercase tracking-wide">Spread</p>
+                              <p className="font-mono text-white">{event.away_team} <span className="text-primary font-bold">{awaySpread.point > 0 ? "+" : ""}{awaySpread.point}</span> <span className="text-muted-foreground">({formatOdds(awaySpread.price)})</span></p>
+                              <p className="font-mono text-white">{event.home_team} <span className="text-primary font-bold">{homeSpread.point > 0 ? "+" : ""}{homeSpread.point}</span> <span className="text-muted-foreground">({formatOdds(homeSpread.price)})</span></p>
+                            </div>
+                          )}
+                          {over && under && (
+                            <div className="space-y-1">
+                              <p className="text-muted-foreground font-semibold uppercase tracking-wide">Total</p>
+                              <p className="font-mono"><span className="text-emerald-400 font-bold">O {over.point}</span> <span className="text-muted-foreground">({formatOdds(over.price)})</span></p>
+                              <p className="font-mono"><span className="text-red-400 font-bold">U {under.point}</span> <span className="text-muted-foreground">({formatOdds(under.price)})</span></p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {prediction.recommendedBet && (
                     <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
