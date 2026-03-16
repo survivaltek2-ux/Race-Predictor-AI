@@ -292,14 +292,9 @@ router.get("/predictions/news", async (req, res) => {
     if (!track) return res.status(400).json({ error: "track query param required" });
 
     const horseList = horses ? horses.split(",").map((h) => h.trim()).filter(Boolean).slice(0, 4) : [];
-    const { fetchNews } = await import("../utils/news");
-
-    const queries = [`${track} horse racing`, ...horseList.map((h) => `${h} horse racing`)];
-    const results = await Promise.all(queries.map((q) => fetchNews(q, 3)));
-    const flat = results.flat();
-    const deduped = flat.filter((item, idx, arr) => arr.findIndex((o) => o.title === item.title) === idx);
-
-    res.json(deduped.slice(0, 10));
+    const { fetchRaceNewsItems } = await import("../utils/news");
+    const items = await fetchRaceNewsItems(track, horseList);
+    res.json(items);
   } catch (err) {
     console.error("Error fetching race news:", err);
     res.status(500).json({ error: "Failed to fetch news" });

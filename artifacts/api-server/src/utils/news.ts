@@ -5,6 +5,78 @@ export interface NewsItem {
   source: string;
 }
 
+// ─── Noise filters ─────────────────────────────────────────────────────────
+// Patterns that reliably identify non-sports / ad content.  Tested case-insensitively.
+const NOISE_PATTERNS: RegExp[] = [
+  // Obituaries & death notices  ("John Doe, 83, of Springfield" or "Dies at 74")
+  /\b\d{2,3},\s+of\s+\w/i,
+  /\bdies?\b.*\bat\s+\d{2}/i,
+  /\bpassed away\b/i,
+  /\bobituary\b/i,
+  /\bmemorial\s+service\b/i,
+  /\bfuneral\b/i,
+  /\bin\s+loving\s+memory\b/i,
+
+  // Casino / gambling ads (not sports betting context)
+  /\bjackpot\s+record/i,
+  /\bslot\s+machine/i,
+  /\bcasino['']s?\s+jackpot/i,
+  /\blucky\s+players?\s+break/i,
+
+  // Non-sports "industrial / municipal" news
+  /\bindustrial\s+business\s+park\b/i,
+  /\bstate\s+funds?\s+for\b/i,
+  /\breceives?\s+\$\d+[MBK]\b/i,
+
+  // Motocross / non-horse-racing motor sport (when querying for horse racing)
+  /\bsupermotocross\b/i,
+
+  // Real-estate / cooking / unrelated lifestyle
+  /\brecipe\b/i,
+  /\breal\s+estate\b/i,
+];
+
+function isNoise(title: string): boolean {
+  return NOISE_PATTERNS.some((p) => p.test(title));
+}
+
+// ─── Relevance scoring ──────────────────────────────────────────────────────
+const HORSE_RACING_TERMS = [
+  /\bhorse\s+rac/i, /\brac(e|ing|etrack)\b/i, /\bjockey\b/i, /\btrainer\b/i,
+  /\bderby\b/i, /\bstakes\b/i, /\bpurse\b/i, /\bhandicap\b/i, /\bgallop\b/i,
+  /\bthrooughbred\b/i, /\bdirt\s+track\b/i, /\bturf\b/i, /\bfurlongs?\b/i,
+  /\bscratch(ed)?\b/i, /\bmorn(ing)?\s+line\b/i, /\bpost\s+time\b/i,
+  /\bchurchill\s+downs\b/i, /\bbelmont\b/i, /\bsaratoga\b/i, /\bkeeneland\b/i,
+  /\baqueduct\b/i, /\bpimlico\b/i, /\btriple\s+crown\b/i,
+];
+
+const GENERAL_SPORTS_TERMS = [
+  /\binjur(y|ies|ed)\b/i, /\bsuspend(ed)?\b/i, /\btrade(d)?\b/i, /\bsigned\b/i,
+  /\bcoach\b/i, /\broster\b/i, /\bplayoff\b/i, /\bscored?\b/i, /\bwins?\b/i,
+  /\bloses?\b/i, /\bdefeats?\b/i, /\bbeat\b/i, /\bgame\b/i, /\bmatch\b/i,
+  /\bseason\b/i, /\bteam\b/i, /\bplayer\b/i, /\bchampionship\b/i, /\bleague\b/i,
+  /\bdraft\b/i, /\bcontract\b/i, /\bfree\s+agent\b/i, /\blineup\b/i, /\bstarting\b/i,
+];
+
+function isRelevantHorseRacing(title: string, trackName: string): boolean {
+  const titleLower = title.toLowerCase();
+  const trackLower = trackName.toLowerCase();
+  // Accept if it mentions the track by name OR uses any horse-racing term
+  if (titleLower.includes(trackLower)) return true;
+  return HORSE_RACING_TERMS.some((p) => p.test(title));
+}
+
+function isRelevantSport(title: string, homeTeam: string, awayTeam: string, sportTitle: string): boolean {
+  const titleLower = title.toLowerCase();
+  const sportLower = sportTitle.toLowerCase();
+  // Accept if it explicitly names a team, the sport, or a common sports action
+  if (titleLower.includes(homeTeam.toLowerCase())) return true;
+  if (titleLower.includes(awayTeam.toLowerCase())) return true;
+  if (sportLower && titleLower.includes(sportLower)) return true;
+  return GENERAL_SPORTS_TERMS.some((p) => p.test(title));
+}
+
+// ─── HTML helpers ───────────────────────────────────────────────────────────
 function stripHtml(raw: string): string {
   return raw
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
@@ -28,22 +100,15 @@ function decodeEntities(s: string): string {
 }
 
 function extractDescriptionText(raw: string): string {
-  // Google News RSS descriptions are either CDATA-wrapped or HTML-entity-encoded.
-  // After normalising, they're almost always just a list of <a> links with no prose.
-  // Return empty if that's the case so the UI stays clean.
   const step1 = raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").trim();
   const decoded = decodeEntities(step1).trim();
-
-  // If the decoded content starts with a tag (or is dominated by tags), skip it.
   if (decoded.startsWith("<")) return "";
-
-  // Strip any embedded HTML and grab the first 200 chars of plain text
   const plain = decoded.replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim();
   if (plain.length < 15) return "";
-
   return plain.slice(0, 200);
 }
 
+// ─── RSS parsing ─────────────────────────────────────────────────────────────
 function parseRssItems(xml: string): NewsItem[] {
   const items: NewsItem[] = [];
   const itemRegex = /<item>([\s\S]*?)<\/item>/g;
@@ -51,21 +116,15 @@ function parseRssItems(xml: string): NewsItem[] {
 
   while ((match = itemRegex.exec(xml)) !== null) {
     const block = match[1];
-
     const titleMatch = block.match(/<title>([\s\S]*?)<\/title>/);
-    const descMatch = block.match(/<description>([\s\S]*?)<\/description>/);
+    const descMatch  = block.match(/<description>([\s\S]*?)<\/description>/);
     const pubDateMatch = block.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
-    const sourceMatch = block.match(/<source[^>]*>([\s\S]*?)<\/source>/);
+    const sourceMatch  = block.match(/<source[^>]*>([\s\S]*?)<\/source>/);
 
-    const rawTitle = titleMatch?.[1] ?? "";
-    const rawDesc = descMatch?.[1] ?? "";
-
-    const title = stripHtml(rawTitle).trim();
-    // Google News descriptions often contain a nested <a> list — grab just the first sentence text
-    const description = extractDescriptionText(rawDesc);
-
-    const pubDate = pubDateMatch?.[1]?.trim() ?? "";
-    const source = sourceMatch?.[1]?.trim() ?? "Google News";
+    const title       = stripHtml(titleMatch?.[1] ?? "").trim();
+    const description = extractDescriptionText(descMatch?.[1] ?? "");
+    const pubDate     = pubDateMatch?.[1]?.trim() ?? "";
+    const source      = sourceMatch?.[1]?.trim() ?? "Google News";
 
     if (title) items.push({ title, description, pubDate, source });
   }
@@ -73,6 +132,7 @@ function parseRssItems(xml: string): NewsItem[] {
   return items;
 }
 
+// ─── Public fetch helpers ─────────────────────────────────────────────────────
 export async function fetchNews(query: string, maxResults = 5): Promise<NewsItem[]> {
   try {
     const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
@@ -82,26 +142,32 @@ export async function fetchNews(query: string, maxResults = 5): Promise<NewsItem
     });
     if (!res.ok) return [];
     const xml = await res.text();
-    return parseRssItems(xml).slice(0, maxResults);
+    return parseRssItems(xml).slice(0, maxResults * 3); // fetch extra so we have room to filter
   } catch {
     return [];
   }
 }
 
-export async function fetchTeamNews(homeTeam: string, awayTeam: string, sportTitle: string): Promise<string> {
-  const [homeNews, awayNews] = await Promise.all([
-    fetchNews(`${homeTeam} ${sportTitle}`, 3),
-    fetchNews(`${awayTeam} ${sportTitle}`, 3),
-  ]);
-
-  const allNews = [...homeNews, ...awayNews];
-  if (allNews.length === 0) return "";
-
-  const deduped = allNews.filter((item, idx, arr) =>
+function dedup(items: NewsItem[]): NewsItem[] {
+  return items.filter((item, idx, arr) =>
     arr.findIndex((o) => o.title === item.title) === idx
   );
+}
 
-  const lines = deduped
+export async function fetchTeamNews(homeTeam: string, awayTeam: string, sportTitle: string): Promise<string> {
+  const [homeNews, awayNews] = await Promise.all([
+    fetchNews(`${homeTeam} ${sportTitle}`, 4),
+    fetchNews(`${awayTeam} ${sportTitle}`, 4),
+  ]);
+
+  const filtered = dedup([...homeNews, ...awayNews])
+    .filter((n) => !isNoise(n.title))
+    .filter((n) => isRelevantSport(n.title, homeTeam, awayTeam, sportTitle))
+    .slice(0, 6);
+
+  if (filtered.length === 0) return "";
+
+  const lines = filtered
     .map((n) => {
       const dateStr = n.pubDate ? ` (${n.pubDate.slice(0, 16)})` : "";
       return `  • ${n.title}${dateStr}${n.description ? `\n    ${n.description}` : ""}`;
@@ -111,25 +177,44 @@ export async function fetchTeamNews(homeTeam: string, awayTeam: string, sportTit
   return `RECENT SPORTS NEWS (use to inform your prediction — injuries, form, lineup changes, etc.):\n${lines}`;
 }
 
-export async function fetchHorseRacingNews(trackName: string, horseNames: string[]): Promise<string> {
-  const trackQuery = `${trackName} horse racing`;
+export async function fetchRaceNewsItems(trackName: string, horseNames: string[]): Promise<NewsItem[]> {
   const [trackNews, ...horseNewsArr] = await Promise.all([
-    fetchNews(trackQuery, 3),
-    ...horseNames.slice(0, 3).map((name) => fetchNews(`${name} horse racing`, 2)),
+    fetchNews(`${trackName} horse racing`, 5),
+    ...horseNames.slice(0, 3).map((name) => fetchNews(`${name} horse racing`, 3)),
   ]);
 
-  const allNews = [
-    ...trackNews,
-    ...horseNewsArr.flat(),
-  ];
+  return dedup([...trackNews, ...horseNewsArr.flat()])
+    .filter((n) => !isNoise(n.title))
+    .filter((n) => isRelevantHorseRacing(n.title, trackName))
+    .slice(0, 10);
+}
 
-  if (allNews.length === 0) return "";
+export async function fetchTeamNewsItems(homeTeam: string, awayTeam: string, sportTitle: string): Promise<NewsItem[]> {
+  const [homeNews, awayNews] = await Promise.all([
+    fetchNews(`${homeTeam} ${sportTitle}`, 4),
+    fetchNews(`${awayTeam} ${sportTitle}`, 4),
+  ]);
 
-  const deduped = allNews.filter((item, idx, arr) =>
-    arr.findIndex((o) => o.title === item.title) === idx
-  );
+  return dedup([...homeNews, ...awayNews])
+    .filter((n) => !isNoise(n.title))
+    .filter((n) => isRelevantSport(n.title, homeTeam, awayTeam, sportTitle))
+    .slice(0, 8);
+}
 
-  const lines = deduped
+export async function fetchHorseRacingNews(trackName: string, horseNames: string[]): Promise<string> {
+  const [trackNews, ...horseNewsArr] = await Promise.all([
+    fetchNews(`${trackName} horse racing`, 5),
+    ...horseNames.slice(0, 3).map((name) => fetchNews(`${name} horse racing`, 3)),
+  ]);
+
+  const filtered = dedup([...trackNews, ...horseNewsArr.flat()])
+    .filter((n) => !isNoise(n.title))
+    .filter((n) => isRelevantHorseRacing(n.title, trackName))
+    .slice(0, 6);
+
+  if (filtered.length === 0) return "";
+
+  const lines = filtered
     .map((n) => {
       const dateStr = n.pubDate ? ` (${n.pubDate.slice(0, 16)})` : "";
       return `  • ${n.title}${dateStr}${n.description ? `\n    ${n.description}` : ""}`;

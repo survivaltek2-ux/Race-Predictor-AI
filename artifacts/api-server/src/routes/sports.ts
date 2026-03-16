@@ -19,18 +19,11 @@ async function fetchOddsApi(path: string) {
 router.get("/sports/news", async (req, res) => {
   try {
     const { home, away, sport } = req.query as { home?: string; away?: string; sport?: string };
-    if (!home && !away) return res.status(400).json({ error: "home or away query param required" });
+    if (!home || !away) return res.status(400).json({ error: "home and away query params required" });
 
-    const [homeItems, awayItems] = await Promise.all([
-      home && sport ? (await import("../utils/news")).fetchNews(`${home} ${sport}`, 4) : Promise.resolve([]),
-      away && sport ? (await import("../utils/news")).fetchNews(`${away} ${sport}`, 4) : Promise.resolve([]),
-    ]);
-
-    const all = [...homeItems, ...awayItems].filter((item, idx, arr) =>
-      arr.findIndex((o) => o.title === item.title) === idx
-    );
-
-    res.json(all);
+    const { fetchTeamNewsItems } = await import("../utils/news");
+    const items = await fetchTeamNewsItems(home, away, sport ?? "");
+    res.json(items);
   } catch (err) {
     console.error("Error fetching sports news:", err);
     res.status(500).json({ error: "Failed to fetch news" });
