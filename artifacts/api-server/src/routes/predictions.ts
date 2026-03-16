@@ -93,11 +93,141 @@ router.post("/predictions/generate", async (req, res) => {
 
     if (entries.length === 0) return res.status(400).json({ error: "No entries found for this race" });
 
+    // --- Derived analytics per entry ---
+    // 1. Win percentage from morning line odds (ML odds → implied probability)
+    const mlToImplied = (odds: string | null): number | null => {
+      if (!odds) return null;
+      const normalized = odds.trim().replace(/\s/g, "");
+      // Handle fractional (e.g. "5-2", "7/2") and decimal (e.g. "3.5") formats
+      if (normalized.includes("-") || normalized.includes("/")) {
+        const sep = normalized.includes("/") ? "/" : "-";
+        const parts = normalized.split(sep);
+        const num = parseFloat(parts[0]);
+        const den = parseFloat(parts[1]);
+        if (isNaN(num) || isNaN(den) || den === 0) return null;
+        return den / (num + den);
+      }
+      const n = parseFloat(normalized);
+      if (isNaN(n)) return null;
+      return 1 / (n + 1);
+    };
+
+    // 2. Days since last race
+    const daysSince = (lastRaceDate: string | null | Date): number | null => {
+      if (!lastRaceDate) return null;
+      return Math.floor((Date.now() - new Date(lastRaceDate).getTime()) / 86400000);
+    };
+
+    // 3. Jockey/trainer cross-field win rate comparison
+    const jockeyGroups: Record<string, { names: string[]; wins: number; total: number }> = {};
+    const trainerGroups: Record<string, { names: string[]; wins: number; total: number }> = {};
+    for (const e of entries) {
+      if (e.jockey) {
+        if (!jockeyGroups[e.jockey]) jockeyGroups[e.jockey] = { names: [], wins: 0, total: 0 };
+        jockeyGroups[e.jockey].names.push(e.horseName);
+        jockeyGroups[e.jockey].wins += e.totalWins;
+        jockeyGroups[e.jockey].total += e.totalRaces;
+      }
+      if (e.trainer) {
+        if (!trainerGroups[e.trainer]) trainerGroups[e.trainer] = { names: [], wins: 0, total: 0 };
+        trainerGroups[e.trainer].names.push(e.horseName);
+        trainerGroups[e.trainer].wins += e.totalWins;
+        trainerGroups[e.trainer].total += e.totalRaces;
+      }
+    }
+
+    // 4. Pace projection: classify each horse as speed, presser, or closer
+    const classifyPaceRole = (e: typeof entries[0]): string => {
+      const impl = mlToImplied(e.morningLineOdds);
+      const winRate = e.totalRaces > 0 ? e.totalWins / e.totalRaces : 0;
+      const lastFinish = e.lastRaceFinish ?? 99;
+      // Heuristic: favorites with high win rates that tend to finish fast are speed horses
+      if (impl && impl > 0.35 && winRate > 0.3) return "Speed/Pace Setter";
+      if (lastFinish <= 2) return "Presser";
+      if (lastFinish >= 5) return "Closer";
+      return "Mid-pack";
+    };
+
+    // 5. Class analysis: compare purse to career earnings per start
+    const avgEarningsPerStart = (e: typeof entries[0]): number =>
+      e.totalRaces > 0 ? e.earnings / e.totalRaces : 0;
+
+    // 6. Post position analysis (statistical priors)
+    const distanceFurlongs = (() => {
+      const d = race.distance?.toLowerCase() ?? "";
+      const m = d.match(/([\d.]+)\s*(?:furlong|mile|f|m)/);
+      if (!m) return null;
+      const n = parseFloat(m[1]);
+      return d.includes("mile") ? n * 8 : n;
+    })();
+    const postPositionNote = distanceFurlongs
+      ? distanceFurlongs <= 7
+        ? "Sprint race (≤7f): Inside posts (1-3) have a statistical advantage — saves ground around turn."
+        : "Route race (8f+): Outside posts more manageable — horses have time to find position."
+      : "";
+
+    const fieldSize = entries.length;
+
     const entriesText = entries
-      .map(
-        (e) =>
-          `- Post #${e.postPosition}: ${e.horseName} (Age ${e.age}) | Jockey: ${e.jockey} | Trainer: ${e.trainer} | Odds: ${e.morningLineOdds} | Record: ${e.totalWins}-${e.totalPlaces}-${e.totalShows} from ${e.totalRaces} starts | Earnings: $${e.earnings.toLocaleString()} | Last race: ${e.lastRaceDate ?? "N/A"} (finished ${e.lastRaceFinish ?? "N/A"}) | Sire: ${e.sire}`
-      )
+      .map((e) => {
+        const impl = mlToImplied(e.morningLineOdds);
+        const implPct = impl != null ? `${(impl * 100).toFixed(1)}% implied win prob` : "";
+        const winRate = e.totalRaces > 0
+          ? `${((e.totalWins / e.totalRaces) * 100).toFixed(1)}% career win rate`
+          : "no career stats";
+        const itm = e.totalRaces > 0
+          ? `${(((e.totalWins + e.totalPlaces + e.totalShows) / e.totalRaces) * 100).toFixed(1)}% in-the-money`
+          : "";
+        const rest = daysSince(e.lastRaceDate);
+        const restNote = rest == null ? "" : rest < 14 ? ` | ⚡ Only ${rest}d rest` : rest > 60 ? ` | ⚠ Layoff: ${rest}d` : ` | ${rest}d since last`;
+        const lastFinNote = e.lastRaceFinish != null ? ` (finished ${e.lastRaceFinish}${e.lastRaceFinish === 1 ? "st" : e.lastRaceFinish === 2 ? "nd" : e.lastRaceFinish === 3 ? "rd" : "th"})` : "";
+        const avgEPS = avgEarningsPerStart(e);
+        const classNote = avgEPS > 0 ? ` | Avg $${Math.round(avgEPS).toLocaleString()}/start` : "";
+        const paceRole = classifyPaceRole(e);
+        return [
+          `Post #${e.postPosition}: ${e.horseName} (${e.age}yo)`,
+          `  Odds: ${e.morningLineOdds ?? "N/A"}${implPct ? ` (${implPct})` : ""}`,
+          `  Jockey: ${e.jockey ?? "N/A"} | Trainer: ${e.trainer ?? "N/A"}`,
+          `  Record: ${e.totalWins}-${e.totalPlaces}-${e.totalShows} from ${e.totalRaces} starts | ${winRate} | ${itm}`,
+          `  Earnings: $${e.earnings.toLocaleString()}${classNote}`,
+          `  Last race: ${e.lastRaceDate ?? "N/A"}${lastFinNote}${restNote}`,
+          `  Sire: ${e.sire ?? "Unknown"} | Pace Profile: ${paceRole} | Weight: ${e.weight ?? "N/A"}lbs`,
+        ].join("\n");
+      })
+      .join("\n\n");
+
+    const jockeySection = Object.entries(jockeyGroups)
+      .map(([j, d]) => {
+        const wr = d.total > 0 ? ((d.wins / d.total) * 100).toFixed(1) : "N/A";
+        return `  ${j} (riding ${d.names.join(", ")}): ${d.wins}-for-${d.total} combined career wins (${wr}% win rate on mounts)`;
+      })
+      .join("\n");
+
+    const trainerSection = Object.entries(trainerGroups)
+      .map(([t, d]) => {
+        const wr = d.total > 0 ? ((d.wins / d.total) * 100).toFixed(1) : "N/A";
+        return `  ${t} (trains ${d.names.join(", ")}): ${d.wins}-for-${d.total} combined career wins (${wr}% win rate on trainees)`;
+      })
+      .join("\n");
+
+    // Pace shape projection for the race
+    const paceRoles = entries.map((e) => ({ name: e.horseName, pp: e.postPosition, role: classifyPaceRole(e) }));
+    const speedCount = paceRoles.filter((r) => r.role === "Speed/Pace Setter").length;
+    const closerCount = paceRoles.filter((r) => r.role === "Closer").length;
+    const paceProjection = speedCount >= 3
+      ? `Hot pace projected (${speedCount} speed horses) — closers get a BOOST, front-runners fade late`
+      : speedCount === 0
+        ? "Slow pace projected — front-runners and pressers get a BOOST, closers disadvantaged"
+        : `Moderate pace (${speedCount} speed, ${closerCount} closers) — neutral pace scenario`;
+
+    const impliedProbLines = entries
+      .map((e) => {
+        const impl = mlToImplied(e.morningLineOdds);
+        return impl != null
+          ? `  Post #${e.postPosition} ${e.horseName}: ${(impl * 100).toFixed(1)}% implied win probability`
+          : null;
+      })
+      .filter(Boolean)
       .join("\n");
 
     // --- Build historical context ---
@@ -187,41 +317,105 @@ router.post("/predictions/generate", async (req, res) => {
     ]);
     const weatherSection = weatherResult ? buildWeatherPromptSection(weatherResult, "racing") : null;
 
-    const prompt = `You are an expert horse racing analyst with 30 years of experience handicapping US races. You are also reviewing your own model's past performance to improve your predictions.
+    const prompt = `You are an expert horse racing handicapper with 30 years of experience at US tracks. You have access to deep race analytics including implied win probabilities, pace projections, class analysis, jockey/trainer stats, weather, news, and your model's historical accuracy. Synthesize ALL data sources.
 
-RACE INFO:
-- Race: ${race.raceName} at ${race.trackName}
-- Date: ${race.raceDate}
-- Distance: ${race.distance}
-- Surface: ${race.surface}
-- Conditions: ${race.conditions || "Standard conditions"}
-- Purse: $${race.purse.toLocaleString()}
+═══ RACE INFO ═══
+Race: ${race.raceName} at ${race.trackName}
+Date: ${race.raceDate}
+Distance: ${race.distance}${distanceFurlongs ? ` (~${distanceFurlongs} furlongs)` : ""}
+Surface: ${race.surface}
+Conditions: ${race.conditions || "Standard conditions"}
+Purse: $${race.purse.toLocaleString()} | Field size: ${fieldSize} horses
 ${weatherSection ? `\n${weatherSection}` : ""}
 
-HORSES ENTERED:
+═══ POST POSITION ANALYSIS ═══
+${postPositionNote || "No specific post position bias data available."}
+
+═══ PACE PROJECTION ═══
+${paceProjection}
+Pace roles by horse:
+${paceRoles.map((r) => `  Post #${r.pp} ${r.name}: ${r.role}`).join("\n")}
+
+How to use pace:
+• Hot pace (3+ speed horses) favors closers — they get a free trip while speed battles up front
+• Slow pace favors speed/pressers — they control the race and are not challenged
+• Identify which closer has the best late kick in a hot pace scenario
+• On a wet/sloppy track, pace pressure matters less — class and fitness take over
+
+═══ MARKET IMPLIED PROBABILITIES ═══
+${impliedProbLines || "  No morning line data available"}
+Note: The morning line is set by the track handicapper, not the public — it reflects a professional's assessment. Horses beating their morning line (being bet down) indicate strong public/sharp confidence.
+
+═══ JOCKEY ANALYSIS ═══
+${jockeySection || "  No jockey data available"}
+
+═══ TRAINER ANALYSIS ═══
+${trainerSection || "  No trainer data available"}
+
+═══ FULL FIELD DETAILS ═══
 ${entriesText}
 
-${historicalSection}
-${newsSection ? `\n${newsSection}\n\nNEWS ANALYSIS INSTRUCTIONS — complete this BEFORE selecting picks:\nFor each headline above, identify:\n  • Which horse(s) or jockey is mentioned (if any)?\n  • Does the news suggest a scratch, injury, track condition change, or form reversal?\n  • Does it improve or reduce a horse's chances in THIS race?\nCapture each meaningful finding in the "newsInsights" field.` : ""}
+═══ CLASS ANALYSIS ═══
+Current purse: $${race.purse.toLocaleString()}
+Avg earnings/start by horse (indicates class level):
+${entries.map((e) => {
+  const avg = avgEarningsPerStart(e);
+  const classLabel = avg > race.purse * 0.3 ? "HIGH CLASS" : avg > race.purse * 0.1 ? "Competitive" : "Step up in class";
+  return `  ${e.horseName}: $${Math.round(avg).toLocaleString()}/start — ${classLabel}`;
+}).join("\n")}
 
-PREDICTION INSTRUCTIONS:
-- Let the news analysis directly influence your pick — a late scratch or injury report outweighs historical stats
-- Use the historical performance data to calibrate confidence — reduce confidence where the model has been wrong
-- A horse with strong model hit rate in similar surface/distance conditions is a positive signal
-- If the model has struggled at this track, widen the confidence gap between your top pick and the rest
+Class note: A horse with avg earnings significantly lower than today's purse is stepping up in class (harder test). A horse well above the purse average is stepping down (easier test — positive signal).
+
+═══ MODEL HISTORICAL PERFORMANCE ═══
+${historicalSection}
+${newsSection ? `\n═══ RECENT NEWS ═══\n${newsSection}\n\nNEWS ANALYSIS — complete BEFORE selecting picks:\nFor each headline:\n  • Which horse(s) or jockey is mentioned?\n  • Does it suggest a scratch, injury, track condition change, equipment change, or form reversal?\n  • Does it improve or reduce a horse's chances in THIS race?\nCapture findings in "newsInsights".` : ""}
+
+═══ HANDICAPPING PRIORITY ORDER ═══
+1. NEWS first — a confirmed scratch, injury, or equipment change overrides everything.
+2. PACE second — identify the pace scenario (hot/slow) and which pace profile wins.
+3. CLASS third — a sharp class drop or horse stepping up too fast is a major signal.
+4. MORNING LINE / IMPLIED PROBABILITY fourth — the track handicapper's professional view.
+5. FORM (recent finishes) fifth — last race finish, days since last race, layoff concerns.
+6. JOCKEY/TRAINER combo sixth — a top jockey switch or hot trainer barn matters.
+7. WEATHER seventh — wet tracks heavily favor certain sires/breeding, inside posts.
+8. HISTORICAL MODEL accuracy last — calibrate confidence based on past performance.
+
+When multiple sources align on the same horse → high confidence (0.75+). When pace, market, and form conflict → lower confidence (0.50–0.65) and explain.
 
 Provide your analysis in this exact JSON format (no markdown, just JSON):
 {
   "topPicks": [
-    { "rank": 1, "horseName": "Horse Name", "postPosition": 1, "confidenceScore": 0.72, "keyFactors": ["Factor 1 (can cite news)", "Factor 2", "Factor 3"] },
-    { "rank": 2, "horseName": "Horse Name", "postPosition": 2, "confidenceScore": 0.55, "keyFactors": ["Factor 1", "Factor 2"] },
-    { "rank": 3, "horseName": "Horse Name", "postPosition": 3, "confidenceScore": 0.40, "keyFactors": ["Factor 1", "Factor 2"] }
+    {
+      "rank": 1,
+      "horseName": "Horse Name",
+      "postPosition": 1,
+      "confidenceScore": 0.72,
+      "keyFactors": [
+        "PACE: Benefits from hot pace as a closer — 3 speed horses set up for late run",
+        "CLASS: Stepping down from $200k race — significant class advantage",
+        "JOCKEY: Top jockey switch signals connections are serious about this one",
+        "FORM: Won last 2, both on dirt — surface fit is strong"
+      ]
+    },
+    {
+      "rank": 2,
+      "horseName": "Horse Name",
+      "postPosition": 2,
+      "confidenceScore": 0.55,
+      "keyFactors": ["Factor 1 with source label", "Factor 2"]
+    },
+    {
+      "rank": 3,
+      "horseName": "Horse Name",
+      "postPosition": 3,
+      "confidenceScore": 0.40,
+      "keyFactors": ["Factor 1 with source label", "Factor 2"]
+    }
   ],
-  "reasoning": "3-5 sentences: lead with the single most impactful news finding, then cover form, distance/surface fit, and model calibration.",
-  "newsInsights": ["How news item 1 affects a specific horse or the race", "How news item 2 shifts the edge"]
-}
-
-Focus on: recent form, class level, distance/surface suitability, jockey/trainer statistics, breeding, pace, news-driven factors, and model calibration.`;
+  "reasoning": "5–7 sentences: lead with pace scenario, then class/form, then key jockey/trainer insight, then news findings, close with confidence calibration from historical model accuracy.",
+  "newsInsights": ["Specific news impact on a horse or track conditions", "Another finding"],
+  "paceAnalysis": "1-2 sentences on the projected pace shape and which type of horse it sets up for"
+}`;
 
     const response = await openai.chat.completions.create({
       model: "gpt-5.2",
@@ -271,6 +465,7 @@ Focus on: recent form, class level, distance/surface suitability, jockey/trainer
           picks: topPicksWithIds,
           newsInsights: aiResult.newsInsights ?? [],
           weatherData: weatherResult ?? null,
+          paceAnalysis: aiResult.paceAnalysis ?? null,
         }),
       })
       .returning();
@@ -288,6 +483,9 @@ Focus on: recent form, class level, distance/surface suitability, jockey/trainer
       confidenceScore: pred.confidenceScore,
       reasoning: pred.reasoning,
       topPicks: topPicksWithIds,
+      newsInsights: aiResult.newsInsights ?? [],
+      weatherData: weatherResult ?? null,
+      paceAnalysis: aiResult.paceAnalysis ?? null,
       wasCorrect: null,
       actualWinnerId: null,
       actualWinnerName: null,
@@ -374,6 +572,7 @@ function formatPrediction(p: any, predictedWinnerName: string, actualWinnerName:
   let topPicks: any[] = [];
   let newsInsights: string[] = [];
   let weatherData: any = null;
+  let paceAnalysis: string | null = null;
   try {
     const raw = JSON.parse(p.topPicksJson ?? "[]");
     if (Array.isArray(raw)) {
@@ -382,6 +581,7 @@ function formatPrediction(p: any, predictedWinnerName: string, actualWinnerName:
       topPicks = raw.picks ?? [];
       newsInsights = raw.newsInsights ?? [];
       weatherData = raw.weatherData ?? null;
+      paceAnalysis = raw.paceAnalysis ?? null;
     }
   } catch {}
   return {
@@ -397,6 +597,7 @@ function formatPrediction(p: any, predictedWinnerName: string, actualWinnerName:
     topPicks,
     newsInsights,
     weatherData,
+    paceAnalysis,
     wasCorrect: p.wasCorrect ?? null,
     actualWinnerId: p.actualWinnerId ?? null,
     actualWinnerName,

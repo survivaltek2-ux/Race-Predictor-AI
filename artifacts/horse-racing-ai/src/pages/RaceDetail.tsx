@@ -3,7 +3,7 @@ import { useGetRace, useGetRaceEntries, useListPredictions, useGeneratePredictio
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button, Progress } from "@/components/ui";
 import { format } from "date-fns";
-import { ArrowLeft, BrainCircuit, AlertCircle, Info, TrendingUp, DollarSign, Medal, Newspaper, Cloud, TrendingDown } from "lucide-react";
+import { ArrowLeft, BrainCircuit, AlertCircle, Info, TrendingUp, DollarSign, Medal, Newspaper, Cloud, TrendingDown, Activity } from "lucide-react";
 import { formatCurrency, cn } from "@/lib/utils";
 import { NewsPanel } from "@/components/NewsPanel";
 
@@ -253,6 +253,16 @@ export function RaceDetail() {
                             </li>
                           ))}
                         </ul>
+                      </div>
+                    )}
+
+                    {/* Pace Analysis */}
+                    {prediction.paceAnalysis && (
+                      <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-4 space-y-2">
+                        <h4 className="text-xs font-bold text-violet-400 uppercase mb-2 flex items-center gap-2">
+                          <Activity className="w-3.5 h-3.5" /> Pace Analysis
+                        </h4>
+                        <p className="text-sm text-muted-foreground">{prediction.paceAnalysis}</p>
                       </div>
                     )}
 

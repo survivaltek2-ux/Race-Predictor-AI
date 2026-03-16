@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button, Progress } from "@/components/ui";
 import { format, formatDistanceToNow } from "date-fns";
-import { ArrowLeft, BrainCircuit, TrendingUp, Info, CheckCircle2, XCircle, AlertCircle, Clock, ClipboardCheck, Newspaper, Cloud, TrendingDown } from "lucide-react";
+import { ArrowLeft, BrainCircuit, TrendingUp, Info, CheckCircle2, XCircle, AlertCircle, Clock, ClipboardCheck, Newspaper, Cloud, TrendingDown, Users, ShieldCheck, ShieldAlert, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NewsPanel } from "@/components/NewsPanel";
 
@@ -406,6 +406,41 @@ export function SportEventDetail() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-6 space-y-5">
+                  {/* Team Stats from ESPN */}
+                  {(prediction.teamStats?.home || prediction.teamStats?.away) && (
+                    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-4">
+                      <h4 className="text-xs font-bold text-emerald-400 uppercase flex items-center gap-2">
+                        <Users className="w-3.5 h-3.5" /> Team Statistics
+                      </h4>
+                      {[
+                        { team: prediction.teamStats.away, label: event.away_team, isHome: false },
+                        { team: prediction.teamStats.home, label: event.home_team, isHome: true },
+                      ].map(({ team, label, isHome }) => team && (
+                        <div key={label} className="space-y-2">
+                          <p className="text-xs font-semibold text-white flex items-center gap-1.5">
+                            {isHome ? <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> : <ShieldAlert className="w-3.5 h-3.5 text-slate-400" />}
+                            {label} <span className="text-muted-foreground font-normal">{isHome ? "(HOME)" : "(AWAY)"}</span>
+                          </p>
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                            <span>Record: <span className="text-white font-mono">{team.wins}-{team.losses}</span> ({(team.winPct * 100).toFixed(1)}%)</span>
+                            <span>Home: <span className="text-white font-mono">{team.homeRecord}</span> | Away: <span className="text-white font-mono">{team.awayRecord}</span></span>
+                            <span>Scoring: <span className="text-emerald-400 font-mono">{team.avgPointsFor?.toFixed(1)}</span> / <span className="text-red-400 font-mono">{team.avgPointsAgainst?.toFixed(1)}</span> ppg</span>
+                            {team.last5 && <span>Last 5: <span className="font-mono text-white">{team.last5}</span>{team.streak ? ` (${team.streak})` : ""}</span>}
+                            {team.restDays != null && <span>Rest: <span className={cn("font-mono", team.restDays <= 1 ? "text-red-400" : "text-white")}>{team.restDays}d</span>{team.restDays <= 1 ? " ⚡ B2B" : ""}</span>}
+                          </div>
+                          {team.keyInjuries?.length > 0 && (
+                            <div className="mt-1 space-y-0.5">
+                              <p className="text-xs text-amber-400 font-semibold">Injury Report:</p>
+                              {team.keyInjuries.slice(0, 5).map((inj: any, i: number) => (
+                                <p key={i} className="text-xs text-muted-foreground ml-2">• {inj.name} ({inj.position}) — <span className={cn("font-semibold", inj.status === "Out" ? "text-red-400" : "text-amber-400")}>{inj.status}</span></p>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Line Movement */}
                   {prediction.lineMovement && (
                     <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-4">
@@ -498,6 +533,39 @@ export function SportEventDetail() {
                           </li>
                         ))}
                       </ul>
+                    </div>
+                  )}
+
+                  {/* Confidence Factors */}
+                  {(prediction.confidenceFactors?.boosts?.length > 0 || prediction.confidenceFactors?.reducers?.length > 0) && (
+                    <div className="rounded-xl border border-slate-500/20 bg-slate-500/5 p-4 space-y-3">
+                      <h4 className="text-xs font-bold text-slate-300 uppercase flex items-center gap-2">
+                        <Activity className="w-3.5 h-3.5" /> Confidence Breakdown
+                      </h4>
+                      {prediction.confidenceFactors.boosts?.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-emerald-400 mb-1">Confidence Boosters</p>
+                          <ul className="space-y-1">
+                            {prediction.confidenceFactors.boosts.map((b: string, i: number) => (
+                              <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-400 mt-0.5 shrink-0" />{b}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {prediction.confidenceFactors.reducers?.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-amber-400 mb-1">Confidence Reducers</p>
+                          <ul className="space-y-1">
+                            {prediction.confidenceFactors.reducers.map((r: string, i: number) => (
+                              <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                                <AlertCircle className="w-3 h-3 text-amber-400 mt-0.5 shrink-0" />{r}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
 

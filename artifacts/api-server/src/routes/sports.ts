@@ -4,6 +4,7 @@ import { eq, desc, and, or } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { fetchTeamNews } from "../utils/news";
 import { fetchWeather, getVenueCoords, buildWeatherPromptSection, OUTDOOR_SPORT_KEYS } from "../utils/weather";
+import { fetchMatchupStats, buildTeamStatsSection, buildTeamStatsAnalysisGuide } from "../utils/teamStats";
 
 const router: IRouter = Router();
 
@@ -46,7 +47,6 @@ router.get("/sports/events", async (req, res) => {
     const sport = req.query.sport as string;
     if (!sport) return res.status(400).json({ error: "sport query param required" });
 
-    // Fetch all three markets in one request for richer data
     const events = await fetchOddsApi(
       `/sports/${sport}/odds?regions=us&markets=h2h,spreads,totals&oddsFormat=american`
     );
@@ -61,14 +61,17 @@ function fmt(price: number): string {
   return price > 0 ? `+${price}` : `${price}`;
 }
 
+function americanToImplied(price: number): number {
+  if (price > 0) return 100 / (price + 100);
+  return Math.abs(price) / (Math.abs(price) + 100);
+}
+
 function computeLineMovement(openingOdds: any, currentOdds: any): { summary: string; movements: any[]; spreadMovements: any[] } | null {
   try {
-    // Find the same bookmaker in both snapshots for a fair comparison
     const currBookmakers: any[] = currentOdds?.bookmakers ?? [];
     const openBookmakers: any[] = openingOdds?.bookmakers ?? [];
     if (!currBookmakers.length || !openBookmakers.length) return null;
 
-    // Try to match on bookmaker key, fall back to index 0
     const currBook = currBookmakers[0];
     const openBook = openBookmakers.find((b: any) => b.key === currBook.key) ?? openBookmakers[0];
 
@@ -132,9 +135,8 @@ function computeLineMovement(openingOdds: any, currentOdds: any): { summary: str
       summaryParts.push(`Spread: ${sp.join("; ")}`);
     }
 
-    // Identify the sharp side (biggest moneyline shortening = backed = sharp)
-    const sharpedMoneyline = movements.sort((a: any, b: any) => a.change - b.change)[0]; // most negative = shortened
-    const sharpedSpread    = spreadMovements.sort((a: any, b: any) => a.pointChange - b.pointChange)[0]; // most negative = fewer points given = backed
+    const sharpedMoneyline = movements.sort((a: any, b: any) => a.change - b.change)[0];
+    const sharpedSpread    = spreadMovements.sort((a: any, b: any) => a.pointChange - b.pointChange)[0];
     const sharpSide = sharpedMoneyline?.change < 0
       ? sharpedMoneyline.team
       : sharpedSpread?.pointChange < 0
@@ -148,38 +150,91 @@ function computeLineMovement(openingOdds: any, currentOdds: any): { summary: str
   }
 }
 
-function buildOddsSection(oddsData: any): string {
+function buildOddsSection(oddsData: any, homeTeam: string, awayTeam: string): string {
   if (!oddsData?.bookmakers?.length) return "No odds available";
 
-  const books: any[] = oddsData.bookmakers.slice(0, 4);
+  const books: any[] = oddsData.bookmakers;
   const sections: string[] = [];
 
-  // --- Moneyline ---
-  const mlLines = books.map((b: any) => {
+  // --- Moneyline with implied probability + consensus ---
+  const mlLines: string[] = [];
+  const homeImpliedArr: number[] = [];
+  const awayImpliedArr: number[] = [];
+
+  for (const b of books.slice(0, 5)) {
     const m = b.markets?.find((m: any) => m.key === "h2h");
-    if (!m) return null;
+    if (!m) continue;
+    const homeOut = m.outcomes.find((o: any) => o.name === homeTeam);
+    const awayOut = m.outcomes.find((o: any) => o.name === awayTeam);
+    if (homeOut && awayOut) {
+      homeImpliedArr.push(americanToImplied(homeOut.price));
+      awayImpliedArr.push(americanToImplied(awayOut.price));
+    }
     const outcomes = m.outcomes.map((o: any) => `${o.name} ${fmt(o.price)}`).join(" | ");
-    return `  ${b.title}: ${outcomes}`;
-  }).filter(Boolean);
-  if (mlLines.length) sections.push(`Moneyline:\n${mlLines.join("\n")}`);
+    mlLines.push(`  ${b.title}: ${outcomes}`);
+  }
 
-  // --- Spread ---
-  const spLines = books.map((b: any) => {
+  if (mlLines.length) {
+    const avgHomeImplied = homeImpliedArr.length
+      ? (homeImpliedArr.reduce((a, b) => a + b, 0) / homeImpliedArr.length * 100).toFixed(1)
+      : null;
+    const avgAwayImplied = awayImpliedArr.length
+      ? (awayImpliedArr.reduce((a, b) => a + b, 0) / awayImpliedArr.length * 100).toFixed(1)
+      : null;
+    const consensusStr = avgHomeImplied && avgAwayImplied
+      ? `  Market consensus implied probability: ${homeTeam} ${avgHomeImplied}% | ${awayTeam} ${avgAwayImplied}%`
+      : "";
+    sections.push(`Moneyline (${books.length} bookmakers):\n${mlLines.join("\n")}${consensusStr ? "\n" + consensusStr : ""}`);
+  }
+
+  // --- Spread with consensus ---
+  const spLines: string[] = [];
+  const homeSpreadArr: number[] = [];
+  for (const b of books.slice(0, 5)) {
     const m = b.markets?.find((m: any) => m.key === "spreads");
-    if (!m) return null;
+    if (!m) continue;
+    const homeSpread = m.outcomes.find((o: any) => o.name === homeTeam);
+    if (homeSpread?.point != null) homeSpreadArr.push(homeSpread.point);
     const outcomes = m.outcomes.map((o: any) => `${o.name} ${o.point > 0 ? "+" : ""}${o.point} (${fmt(o.price)})`).join(" | ");
-    return `  ${b.title}: ${outcomes}`;
-  }).filter(Boolean);
-  if (spLines.length) sections.push(`Point Spread:\n${spLines.join("\n")}`);
+    spLines.push(`  ${b.title}: ${outcomes}`);
+  }
+  if (spLines.length) {
+    const consensusSpread = homeSpreadArr.length
+      ? (homeSpreadArr.reduce((a, b) => a + b, 0) / homeSpreadArr.length).toFixed(1)
+      : null;
+    const spreadStr = consensusSpread
+      ? `  Consensus spread: ${homeTeam} ${Number(consensusSpread) > 0 ? "+" : ""}${consensusSpread}`
+      : "";
+    sections.push(`Point Spread:\n${spLines.join("\n")}${spreadStr ? "\n" + spreadStr : ""}`);
+  }
 
-  // --- Totals ---
-  const totLines = books.map((b: any) => {
+  // --- Totals with consensus ---
+  const totLines: string[] = [];
+  const totalArr: number[] = [];
+  for (const b of books.slice(0, 5)) {
     const m = b.markets?.find((m: any) => m.key === "totals");
-    if (!m) return null;
+    if (!m) continue;
+    const over = m.outcomes.find((o: any) => o.name === "Over");
+    if (over?.point != null) totalArr.push(over.point);
     const outcomes = m.outcomes.map((o: any) => `${o.name} ${o.point} (${fmt(o.price)})`).join(" | ");
-    return `  ${b.title}: ${outcomes}`;
-  }).filter(Boolean);
-  if (totLines.length) sections.push(`Totals (Over/Under):\n${totLines.join("\n")}`);
+    totLines.push(`  ${b.title}: ${outcomes}`);
+  }
+  if (totLines.length) {
+    const consensusTotal = totalArr.length
+      ? (totalArr.reduce((a, b) => a + b, 0) / totalArr.length).toFixed(1)
+      : null;
+    const totalStr = consensusTotal ? `  Consensus total: ${consensusTotal}` : "";
+    sections.push(`Totals (Over/Under):\n${totLines.join("\n")}${totalStr ? "\n" + totalStr : ""}`);
+  }
+
+  // --- Market efficiency: vig / juice indicator ---
+  const firstBook = books[0];
+  const h2hMkt = firstBook?.markets?.find((m: any) => m.key === "h2h");
+  if (h2hMkt) {
+    const totalImplied = h2hMkt.outcomes.reduce((sum: number, o: any) => sum + americanToImplied(o.price), 0);
+    const vig = ((totalImplied - 1) * 100).toFixed(2);
+    sections.push(`Market vig (overround): ${vig}% — ${Number(vig) < 4 ? "tight market (efficient)" : "wider market (less efficient)"}`);
+  }
 
   return sections.join("\n\n");
 }
@@ -203,7 +258,6 @@ router.post("/sports/predictions", async (req, res) => {
       return res.json(formatSportsPrediction(existing[0]));
     }
 
-    // Upsert event to track opening odds (first time we see this event = opening line)
     const oddsStr = JSON.stringify(oddsData ?? {});
     const storedEvent = await db
       .select()
@@ -235,20 +289,53 @@ router.post("/sports/predictions", async (req, res) => {
 
     const lineMovement = computeLineMovement(openingOdds, oddsData);
 
-    const oddsLines = buildOddsSection(oddsData);
+    // Fetch all data in parallel for speed
+    const [
+      teamStatsResult,
+      weatherResult,
+      newsSection,
+      allSportPreds,
+      teamPreds,
+    ] = await Promise.all([
+      fetchMatchupStats(sportKey, homeTeam, awayTeam).catch(() => ({ home: null, away: null })),
+      getVenueCoords(homeTeam, sportKey)
+        ? fetchWeather(getVenueCoords(homeTeam, sportKey)![0], getVenueCoords(homeTeam, sportKey)![1]).catch(() => null)
+        : Promise.resolve(null),
+      fetchTeamNews(homeTeam, awayTeam, sportTitle).catch(() => null),
+      db
+        .select({ wasCorrect: sportsPredictionsTable.wasCorrect, confidenceScore: sportsPredictionsTable.confidenceScore, predictedWinner: sportsPredictionsTable.predictedWinner })
+        .from(sportsPredictionsTable)
+        .where(eq(sportsPredictionsTable.sportKey, sportKey)),
+      db
+        .select({
+          homeTeam: sportsPredictionsTable.homeTeam,
+          awayTeam: sportsPredictionsTable.awayTeam,
+          predictedWinner: sportsPredictionsTable.predictedWinner,
+          wasCorrect: sportsPredictionsTable.wasCorrect,
+          actualWinner: sportsPredictionsTable.actualWinner,
+          confidenceScore: sportsPredictionsTable.confidenceScore,
+          commenceTime: sportsPredictionsTable.commenceTime,
+        })
+        .from(sportsPredictionsTable)
+        .where(
+          and(
+            eq(sportsPredictionsTable.sportKey, sportKey),
+            or(
+              eq(sportsPredictionsTable.homeTeam, homeTeam),
+              eq(sportsPredictionsTable.awayTeam, homeTeam),
+              eq(sportsPredictionsTable.homeTeam, awayTeam),
+              eq(sportsPredictionsTable.awayTeam, awayTeam),
+            )
+          )
+        )
+        .orderBy(desc(sportsPredictionsTable.commenceTime))
+        .limit(10),
+    ]);
 
-    // Fetch weather for outdoor sports
-    const venueCoords = getVenueCoords(homeTeam, sportKey);
-    const weatherResult = venueCoords ? await fetchWeather(venueCoords[0], venueCoords[1]) : null;
     const weatherSection = weatherResult ? buildWeatherPromptSection(weatherResult, "sports") : null;
+    const oddsLines = buildOddsSection(oddsData, homeTeam, awayTeam);
 
-    // --- Build historical context ---
-    // 1. Overall accuracy for this sport
-    const allSportPreds = await db
-      .select({ wasCorrect: sportsPredictionsTable.wasCorrect, confidenceScore: sportsPredictionsTable.confidenceScore, predictedWinner: sportsPredictionsTable.predictedWinner })
-      .from(sportsPredictionsTable)
-      .where(eq(sportsPredictionsTable.sportKey, sportKey));
-
+    // Historical model performance
     const resolvedSport = allSportPreds.filter((p) => p.wasCorrect !== null);
     const sportCorrect = resolvedSport.filter((p) => p.wasCorrect).length;
     const sportAccuracy = resolvedSport.length > 0
@@ -257,32 +344,6 @@ router.post("/sports/predictions", async (req, res) => {
     const sportAvgConf = resolvedSport.length > 0
       ? (resolvedSport.reduce((s, p) => s + p.confidenceScore, 0) / resolvedSport.length * 100).toFixed(1)
       : null;
-
-    // 2. Past matchups involving these specific teams
-    const teamPreds = await db
-      .select({
-        homeTeam: sportsPredictionsTable.homeTeam,
-        awayTeam: sportsPredictionsTable.awayTeam,
-        predictedWinner: sportsPredictionsTable.predictedWinner,
-        wasCorrect: sportsPredictionsTable.wasCorrect,
-        actualWinner: sportsPredictionsTable.actualWinner,
-        confidenceScore: sportsPredictionsTable.confidenceScore,
-        commenceTime: sportsPredictionsTable.commenceTime,
-      })
-      .from(sportsPredictionsTable)
-      .where(
-        and(
-          eq(sportsPredictionsTable.sportKey, sportKey),
-          or(
-            eq(sportsPredictionsTable.homeTeam, homeTeam),
-            eq(sportsPredictionsTable.awayTeam, homeTeam),
-            eq(sportsPredictionsTable.homeTeam, awayTeam),
-            eq(sportsPredictionsTable.awayTeam, awayTeam),
-          )
-        )
-      )
-      .orderBy(desc(sportsPredictionsTable.commenceTime))
-      .limit(10);
 
     const teamHistoryLines = teamPreds.map((p) => {
       const matchup = `${p.awayTeam} @ ${p.homeTeam}`;
@@ -295,7 +356,6 @@ router.post("/sports/predictions", async (req, res) => {
       return `  - ${dateStr}: ${matchup} → Picked: ${p.predictedWinner} (${Math.round(p.confidenceScore * 100)}% confidence) → ${outcome}`;
     }).join("\n");
 
-    // 3. Home/away team win rates from resolved predictions
     const homeTeamPicks = resolvedSport.filter((p: any) => p.predictedWinner === homeTeam);
     const awayTeamPicks = resolvedSport.filter((p: any) => p.predictedWinner === awayTeam);
 
@@ -314,15 +374,33 @@ router.post("/sports/predictions", async (req, res) => {
       teamPreds.length > 0 ? `\n  Prior predictions involving these teams:\n${teamHistoryLines}` : "  - No prior predictions involving these teams",
     ].filter(Boolean).join("\n");
 
-    const newsSection = await fetchTeamNews(homeTeam, awayTeam, sportTitle);
+    const teamStatsSection = buildTeamStatsSection(teamStatsResult, homeTeam, awayTeam);
+    const teamStatsGuide = buildTeamStatsAnalysisGuide();
 
-    const prompt = `You are an expert sports analyst and betting handicapper. You have access to live odds (moneyline, spread, totals), odds line movement, weather data, recent news, and your model's historical accuracy — all provided below. Synthesize ALL sources before reaching a conclusion.
+    // Rest days advantage analysis
+    const homeRest = teamStatsResult.home?.restDays;
+    const awayRest = teamStatsResult.away?.restDays;
+    let restAdvantageNote = "";
+    if (homeRest !== null && homeRest !== undefined && awayRest !== null && awayRest !== undefined) {
+      const diff = homeRest - awayRest;
+      if (Math.abs(diff) >= 2) {
+        const rested = diff > 0 ? homeTeam : awayTeam;
+        const fatigued = diff > 0 ? awayTeam : homeTeam;
+        restAdvantageNote = `\n⚡ REST ADVANTAGE: ${rested} has ${Math.abs(diff)} more rest days than ${fatigued} — historical data shows teams with significant rest advantage win ~55-60% of matchups`;
+      }
+    }
+
+    const prompt = `You are an expert sports analyst and professional handicapper. You have access to live odds (with implied probabilities and bookmaker consensus), line movement (sharp money signals), detailed team statistics from ESPN, injury reports, weather data, recent news, and your model's historical accuracy. Synthesize ALL sources before reaching a conclusion.
 
 MATCHUP: ${awayTeam} @ ${homeTeam}
 SPORT: ${sportTitle}
 DATE: ${new Date(commenceTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
 
-═══ MARKET DATA ═══
+${teamStatsSection}${restAdvantageNote}
+
+${teamStatsGuide}
+
+═══ MARKET DATA (${oddsData?.bookmakers?.length ?? 0} bookmakers) ═══
 ${oddsLines}
 ${lineMovement ? `\n═══ LINE MOVEMENT (opening → current) ═══\n${lineMovement.summary}\n\nHow to use this:\n• Moneyline shortening = public/sharp money backing that team\n• Spread tightening (fewer points given) = sharps backing the favourite\n• Spread widening (more points given) = sharps backing the underdog\nA spread move of 0.5+ pts is a meaningful sharp-money signal. Weight this heavily.` : ""}
 ${weatherSection ? `\n═══ WEATHER ═══\n${weatherSection}\n\nHow to use this:\n• Wind 15+ mph hurts passing games (NFL, college football) — favour rush-heavy teams or the under\n• Rain reduces scoring — lean under, lean home teams\n• Extreme cold (below 30°F) reduces scoring totals by ~3–5 pts historically` : ""}
@@ -334,24 +412,36 @@ ${historicalSection}
 ═══ HOW TO COMBINE ALL SOURCES ═══
 Work through this hierarchy — do NOT skip steps:
 
-1. NEWS first — a confirmed key-player injury or suspension is the single strongest signal and can override everything else.
+1. INJURY REPORT first — a key starter listed "Out" is the single strongest signal and can override everything else. Cross-reference injury report with news.
 2. LINE MOVEMENT second — spread movement of 0.5+ pts indicates sharp action; follow it unless step 1 directly contradicts.
-3. MARKET CONSENSUS third — if 3+ books agree on a spread, that consensus encodes a lot of information; only fade it with strong step 1 or step 2 evidence.
-4. WEATHER fourth — only meaningful for outdoor sports; primarily affects totals and running-game teams.
-5. HISTORICAL accuracy last — use this to calibrate confidence UP or DOWN but not to override the pick itself.
+3. TEAM STATS third — point differential, home/away splits, recent form (last 5 games), and rest advantage are strong indicators. A team on a 3+ game losing streak has underlying issues.
+4. MARKET CONSENSUS fourth — if 3+ books agree on a spread, that consensus encodes significant information; only fade it with strong evidence from steps 1-3.
+5. WEATHER fifth — only meaningful for outdoor sports; primarily affects totals and running-game teams.
+6. NEWS sixth — corroborates or conflicts with what the market already knows.
+7. HISTORICAL accuracy last — use this to calibrate confidence UP or DOWN but not to override the pick itself.
 
-When sources agree → high confidence. When they conflict → lower confidence and explain the conflict.
+When ALL sources agree → high confidence (0.75+). When 2+ sources conflict → lower confidence (0.55-0.65) and explain the conflict clearly.
 Your recommendedBet must reference the spread or total, not just the moneyline, where spread/totals data is available.
 
 Respond ONLY with valid JSON (no markdown):
 {
   "predictedWinner": "Team Name (must be exactly '${homeTeam}' or '${awayTeam}')",
   "confidenceScore": 0.72,
-  "reasoning": "4–6 sentences: open with the most decisive source (news/line movement/market), then work through how each additional source confirmed or conflicted, and close with confidence calibration from historical data",
-  "keyFactors": ["Source-labelled factor, e.g. NEWS: Starter ruled out", "LINE: Spread moved 1pt toward home", "WEATHER: 25mph winds hurt passing"],
-  "recommendedBet": "Specific bet recommendation including spread or total line where applicable (e.g. 'KC -3.5 (-110)' or 'Under 47.5 (-105)')",
+  "reasoning": "5–7 sentences: open with the most decisive source (injury/line movement/stats), work through how each source confirmed or conflicted, note any rest or home/away advantage, close with confidence calibration",
+  "keyFactors": [
+    "STATS: Team A averages 12 more pts/gm than allowed — elite scoring differential",
+    "INJURY: Starting QB listed Out — massive impact on passing game",
+    "LINE: Spread moved 1.5pts toward home — sharp money signal",
+    "FORM: Away team on 4-game losing streak with back-to-back fatigue",
+    "WEATHER: 25mph winds expected — hurt passing, favour under"
+  ],
+  "recommendedBet": "Specific bet including spread or total (e.g. 'KC -3.5 (-110)' or 'Under 47.5 (-105)')",
   "valueSide": "${homeTeam} or ${awayTeam}",
-  "newsInsights": ["Specific impact from news item 1", "Specific impact from news item 2"]
+  "newsInsights": ["Specific news impact 1", "Specific news impact 2"],
+  "confidenceFactors": {
+    "boosts": ["Factor that increased confidence", "Another boost"],
+    "reducers": ["Factor that introduced uncertainty", "Another reducer"]
+  }
 }`;
 
     const completion = await openai.chat.completions.create({
@@ -381,10 +471,15 @@ Respond ONLY with valid JSON (no markdown):
         recommendedBet: parsed.recommendedBet || "",
         valueSide: parsed.valueSide || "",
         newsInsights: parsed.newsInsights || [],
+        confidenceFactors: parsed.confidenceFactors || null,
         oddsAtPrediction: oddsData,
         weatherData: weatherResult ?? null,
         lineMovement: lineMovement ?? null,
         spreadMovements: lineMovement?.spreadMovements ?? [],
+        teamStats: {
+          home: teamStatsResult.home,
+          away: teamStatsResult.away,
+        },
       }),
     }).returning();
 
@@ -469,10 +564,12 @@ function formatSportsPrediction(p: any) {
     recommendedBet: analysis.recommendedBet || "",
     valueSide: analysis.valueSide || "",
     newsInsights: analysis.newsInsights || [],
+    confidenceFactors: analysis.confidenceFactors ?? null,
     weatherData: analysis.weatherData ?? null,
     lineMovement: analysis.lineMovement ?? null,
     spreadMovements: analysis.spreadMovements ?? [],
     oddsAtPrediction: analysis.oddsAtPrediction ?? null,
+    teamStats: analysis.teamStats ?? null,
     wasCorrect: p.wasCorrect ?? null,
     actualWinner: p.actualWinner ?? null,
     createdAt: p.createdAt,
