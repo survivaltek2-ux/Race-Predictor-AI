@@ -24,7 +24,7 @@ export function SportEvents() {
   const [, params] = useRoute("/sports/:sport");
   const sport = params?.sport || "";
 
-  const { data: events, isLoading } = useQuery<any[]>({
+  const { data: eventsData, isLoading } = useQuery<{ events: any[] }>({
     queryKey: ["sport-events", sport],
     queryFn: async () => {
       const res = await fetch(`${BASE}/api/sports/events?sport=${sport}`);
@@ -34,6 +34,8 @@ export function SportEvents() {
     staleTime: 2 * 60 * 1000,
     enabled: !!sport,
   });
+
+  const events = eventsData?.events || [];
 
   const { data: predictionsData } = useQuery<{ predictions: any[] }>({
     queryKey: ["sports-predictions", sport],

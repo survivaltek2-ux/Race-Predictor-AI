@@ -11,6 +11,16 @@ const router: IRouter = Router();
 const ODDS_API_KEY = process.env["ODDS_API_KEY"];
 const ODDS_API_BASE = "https://api.the-odds-api.com/v4";
 
+// Map short sport keys to Odds API sport keys
+const SPORT_KEY_MAP: Record<string, string> = {
+  nfl: "americanfootball_nfl",
+  nba: "basketball_nba",
+  mlb: "baseball_mlb",
+  nhl: "icehockey_nhl",
+  ncaaf: "americanfootball_ncaaf",
+  ncaab: "basketball_ncaab",
+};
+
 async function fetchOddsApi(path: string) {
   const url = `${ODDS_API_BASE}${path}${path.includes("?") ? "&" : "?"}apiKey=${ODDS_API_KEY}`;
   const res = await fetch(url);
@@ -47,10 +57,25 @@ router.get("/sports/events", async (req, res) => {
     const sport = req.query.sport as string;
     if (!sport) return res.status(400).json({ error: "sport query param required" });
 
+    const oddsApiSport = SPORT_KEY_MAP[sport] || sport;
     const events = await fetchOddsApi(
-      `/sports/${sport}/odds?regions=us&markets=h2h,spreads,totals&oddsFormat=american`
+      `/sports/${oddsApiSport}/odds?regions=us&markets=h2h,spreads,totals&oddsFormat=american`
     );
-    res.json(events);
+    
+    // Transform event response to include sport title
+    const eventsWithSportTitle = (events.events || []).map((e: any) => ({
+      ...e,
+      sport_title: {
+        nfl: "NFL",
+        nba: "NBA",
+        mlb: "MLB",
+        nhl: "NHL",
+        ncaaf: "College Football",
+        ncaab: "College Basketball",
+      }[sport] || sport.toUpperCase(),
+    }));
+
+    res.json({ events: eventsWithSportTitle });
   } catch (err) {
     console.error("Error fetching events:", err);
     res.status(500).json({ error: "Failed to fetch events" });
