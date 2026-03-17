@@ -91,6 +91,41 @@ Generated Zod schemas from the OpenAPI spec (e.g. `HealthCheckResponse`). Used b
 
 Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHealthCheck`, `healthCheck`).
 
+### `artifacts/horse-racing-ai` (`@workspace/horse-racing-ai`)
+
+React + Vite frontend for the AI Sports Predictor. Features:
+- **Dashboard** — overview stats
+- **Horse Racing** — race predictions with pace analysis
+- **Sports Center** — NFL, NBA, MLB, NHL, Boxing events with live odds (The Odds API)
+- **Sports Picks** — prediction history with AI training feedback
+- **Lottery Predictor** — ML-powered lottery number predictions (Powerball, Mega Millions)
+
+Key pages: `src/pages/Lottery.tsx`, `src/pages/SportEvents.tsx`, `src/pages/SportsPredictions.tsx`
+
+### Database Schema (`lib/db`)
+
+Tables: tracks, horses, races, race_entries, predictions, sports_events, sports_predictions, lottery_games, lottery_results, lottery_predictions
+
+### ML Engine (`artifacts/api-server/src/lib/lotteryML.ts`)
+
+6-algorithm ML ensemble for lottery predictions:
+1. **Weighted Frequency** (25%) — exponential recency weighting
+2. **Monte Carlo Simulation** (25%) — 10,000 weighted random simulations
+3. **Gap Analysis** (20%) — overdue number detection by interval
+4. **Pair Clustering** (15%) — co-occurring number pair analysis
+5. **Moving Average Trend** (10%) — short vs long term crossover
+6. **Sum Distribution** (5%) — statistical sum range optimization
+
+Prediction modes: hybrid (ML+AI), ml (pure ML), ai (GPT-5.2 only), ml-fallback (when AI fails)
+
+### Important Notes
+
+- **framer-motion**: MUST NOT be used — causes "Illegal constructor" crashes; use CSS transitions only
+- **AI Integration**: Replit OpenAI proxy (gpt-5.2), no user API key needed
+- **The Odds API**: `ODDS_API_KEY` env var; sport key mapping in `SPORT_KEY_MAP`
+- **ESPN API**: public, no auth
+- **Weather**: Open-Meteo, no key
+
 ### `scripts` (`@workspace/scripts`)
 
 Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.

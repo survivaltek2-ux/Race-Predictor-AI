@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, lotteryGames, lotteryResults, lotteryPredictions } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { runMLEnsemble, parseDrawResults } from "../lib/lotteryML";
 
 const router: IRouter = Router();
 
@@ -36,112 +37,197 @@ router.get("/lottery/predictions", async (req, res) => {
 
 router.post("/lottery/predictions/generate", async (req, res) => {
   try {
-    const { gameKey } = req.body;
+    const { gameKey, method } = req.body;
     if (!gameKey) return res.status(400).json({ error: "gameKey is required" });
 
-    // Get game info
     const [game] = await db.select().from(lotteryGames).where(eq(lotteryGames.gameKey, gameKey));
     if (!game) return res.status(404).json({ error: "Lottery game not found" });
 
-    // Get recent historical results
     const recentResults = await db
       .select()
       .from(lotteryResults)
       .where(eq(lotteryResults.gameId, game.id))
       .orderBy(desc(lotteryResults.drawDate))
-      .limit(50);
+      .limit(100);
 
-    // Analyze patterns
-    const allNumbers: number[] = [];
-    const bonusNumbers: number[] = [];
-    
-    recentResults.forEach((result) => {
-      const nums = result.winningNumbers.split(",").map((n) => parseInt(n.trim()));
-      allNumbers.push(...nums);
-      bonusNumbers.push(result.bonusNumber);
-    });
+    const historicalDraws = parseDrawResults(recentResults);
 
-    // Frequency analysis
-    const frequency: Record<number, number> = {};
-    allNumbers.forEach((num) => {
-      frequency[num] = (frequency[num] || 0) + 1;
-    });
+    const mlResult = runMLEnsemble(historicalDraws, game.maxNumber, game.numberOfPicks, game.bonusNumberMax);
 
-    const sortedByFrequency = Object.entries(frequency)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 20)
-      .map(([num]) => parseInt(num));
+    let aiAnalysis: any = null;
+    let actualMethod = method || "hybrid";
 
-    const bonusFrequency: Record<number, number> = {};
-    bonusNumbers.forEach((num) => {
-      bonusFrequency[num] = (bonusFrequency[num] || 0) + 1;
-    });
+    if (actualMethod === "hybrid" || actualMethod === "ai") {
+      try {
+        const allNumbers: number[] = [];
+        const bonusNumbers: number[] = [];
+        recentResults.forEach((result) => {
+          const nums = result.winningNumbers.split(",").map((n) => parseInt(n.trim()));
+          allNumbers.push(...nums);
+          bonusNumbers.push(result.bonusNumber);
+        });
 
-    const topBonuses = Object.entries(bonusFrequency)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 5)
-      .map(([num]) => parseInt(num));
+        const frequency: Record<number, number> = {};
+        allNumbers.forEach((num) => { frequency[num] = (frequency[num] || 0) + 1; });
+        const sortedByFrequency = Object.entries(frequency)
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 20)
+          .map(([num]) => parseInt(num));
 
-    // Use AI to generate predictions based on patterns
-    const prompt = `You are a lottery prediction AI. Analyze the lottery game "${game.name}" with the following patterns:
+        const bonusFrequency: Record<number, number> = {};
+        bonusNumbers.forEach((num) => { bonusFrequency[num] = (bonusFrequency[num] || 0) + 1; });
+        const topBonuses = Object.entries(bonusFrequency)
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 5)
+          .map(([num]) => parseInt(num));
 
-Recent Winning Numbers Analysis:
-- Most frequent numbers (last 50 draws): ${sortedByFrequency.join(", ")}
+        const mlInsights = mlResult.algorithmBreakdown.map((a) => `${a.name}: ${a.insights.join("; ")}`).join("\n");
+
+        const prompt = `You are a lottery prediction AI using machine learning insights. Analyze "${game.name}":
+
+Historical Pattern Analysis:
+- Most frequent numbers (last ${recentResults.length} draws): ${sortedByFrequency.join(", ")}
 - Most frequent bonus numbers: ${topBonuses.join(", ")}
-- Total historical draws analyzed: ${recentResults.length}
+- Total draws analyzed: ${recentResults.length}
 
-Your task:
-1. Identify number clusters and patterns
-2. Consider hot numbers (recently drawn) vs cold numbers (long time since drawn)
-3. Avoid overweighting recent patterns (consider 20-draw window)
-4. Generate ${game.numberOfPicks} main numbers between 1 and ${game.maxNumber}
-5. Generate 1 bonus number between 1 and ${game.bonusNumberMax}
+Machine Learning Ensemble Results:
+- ML predicted numbers: ${mlResult.mainNumbers.join(", ")}
+- ML predicted bonus: ${mlResult.bonusNumber}
+- ML ensemble confidence: ${(mlResult.confidence * 100).toFixed(1)}%
 
-Respond ONLY with valid JSON in this exact format:
+Individual Algorithm Insights:
+${mlInsights}
+
+Consider the ML results alongside your own analysis. Generate ${game.numberOfPicks} main numbers (1-${game.maxNumber}) and 1 bonus number (1-${game.bonusNumberMax}).
+
+Respond ONLY with valid JSON:
 {
   "mainNumbers": [n1, n2, n3, n4, n5],
   "bonusNumber": n,
-  "reasoning": "Brief explanation of pattern analysis",
-  "keyPatterns": ["pattern1", "pattern2"],
+  "reasoning": "Brief explanation combining ML and AI analysis",
+  "keyPatterns": ["pattern1", "pattern2", "pattern3"],
   "confidenceScore": 0.45
 }`;
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
-      max_tokens: 1024,
-      messages: [{ role: "user", content: prompt }],
-    });
+        const response = await openai.chat.completions.create({
+          model: "gpt-5.2",
+          max_tokens: 1024,
+          messages: [{ role: "user", content: prompt }],
+        });
 
-    const content = response.content[0];
-    if (content.type !== "text") throw new Error("Unexpected response type");
+        const content = response.choices?.[0]?.message?.content;
+        if (content) {
+          const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+          const parsed = JSON.parse(cleaned);
 
-    let analysis;
-    try {
-      analysis = JSON.parse(content.text);
-    } catch {
-      // Fallback: Generate random prediction if AI response fails
-      const shuffled = Array.from({ length: game.maxNumber }, (_, i) => i + 1)
-        .sort(() => Math.random() - 0.5)
-        .slice(0, game.numberOfPicks);
-      const bonus = Math.floor(Math.random() * game.bonusNumberMax) + 1;
-      analysis = {
-        mainNumbers: shuffled,
-        bonusNumber: bonus,
-        reasoning: "Random selection",
-        keyPatterns: [],
-        confidenceScore: 0.35,
-      };
+          const validNumbers = Array.isArray(parsed.mainNumbers)
+            ? [...new Set(parsed.mainNumbers.map(Number).filter((n: number) => !isNaN(n) && n >= 1 && n <= game.maxNumber))]
+            : [];
+          const validBonus = typeof parsed.bonusNumber === "number" && parsed.bonusNumber >= 1 && parsed.bonusNumber <= game.bonusNumberMax
+            ? parsed.bonusNumber
+            : null;
+          const validConfidence = typeof parsed.confidenceScore === "number"
+            ? Math.max(0, Math.min(1, parsed.confidenceScore))
+            : 0.35;
+
+          if (validNumbers.length >= game.numberOfPicks && validBonus !== null) {
+            aiAnalysis = {
+              mainNumbers: (validNumbers as number[]).slice(0, game.numberOfPicks).sort((a: number, b: number) => a - b),
+              bonusNumber: validBonus,
+              confidenceScore: validConfidence,
+              reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "AI pattern analysis",
+              keyPatterns: Array.isArray(parsed.keyPatterns) ? parsed.keyPatterns.filter((p: any) => typeof p === "string") : [],
+            };
+          }
+        }
+      } catch (aiErr) {
+        console.error("AI analysis failed, falling back to ML:", aiErr);
+      }
+
+      if (!aiAnalysis && actualMethod === "ai") {
+        actualMethod = "ml-fallback";
+      }
     }
+
+    let finalNumbers: number[];
+    let finalBonus: number;
+    let finalConfidence: number;
+    let finalReasoning: string;
+    let finalPatterns: string[];
+
+    if (actualMethod === "ml" || actualMethod === "ml-fallback" || !aiAnalysis) {
+      finalNumbers = mlResult.mainNumbers;
+      finalBonus = mlResult.bonusNumber;
+      finalConfidence = mlResult.confidence;
+      const fallbackNote = actualMethod === "ml-fallback" ? " (AI unavailable, ML fallback)" : "";
+      finalReasoning = `ML Ensemble prediction using ${mlResult.algorithmBreakdown.length} algorithms: ${mlResult.algorithmBreakdown.map((a) => a.name).join(", ")}${fallbackNote}`;
+      finalPatterns = mlResult.algorithmBreakdown.flatMap((a) => a.insights).slice(0, 6);
+    } else if (actualMethod === "ai") {
+      finalNumbers = aiAnalysis.mainNumbers;
+      finalBonus = aiAnalysis.bonusNumber;
+      finalConfidence = aiAnalysis.confidenceScore;
+      finalReasoning = aiAnalysis.reasoning;
+      finalPatterns = aiAnalysis.keyPatterns || [];
+    } else {
+      const hybridVotes: Record<number, number> = {};
+      mlResult.mainNumbers.forEach((n) => { hybridVotes[n] = (hybridVotes[n] || 0) + mlResult.confidence; });
+      aiAnalysis.mainNumbers.forEach((n: number) => { hybridVotes[n] = (hybridVotes[n] || 0) + aiAnalysis.confidenceScore; });
+
+      const sorted = Object.entries(hybridVotes)
+        .map(([n, v]) => ({ number: parseInt(n), votes: v }))
+        .sort((a, b) => b.votes - a.votes);
+
+      let hybridNumbers = sorted.slice(0, game.numberOfPicks).map((s) => s.number);
+      if (hybridNumbers.length < game.numberOfPicks) {
+        const existing = new Set(hybridNumbers);
+        for (let i = 1; i <= game.maxNumber && hybridNumbers.length < game.numberOfPicks; i++) {
+          if (!existing.has(i)) hybridNumbers.push(i);
+        }
+      }
+      finalNumbers = hybridNumbers.sort((a, b) => a - b);
+      finalBonus = mlResult.confidence > aiAnalysis.confidenceScore ? mlResult.bonusNumber : aiAnalysis.bonusNumber;
+      finalConfidence = Math.max(0, Math.min(1, mlResult.confidence * 0.5 + aiAnalysis.confidenceScore * 0.5));
+      finalReasoning = `Hybrid prediction combining ML ensemble (${(mlResult.confidence * 100).toFixed(0)}% conf) with AI analysis (${(aiAnalysis.confidenceScore * 100).toFixed(0)}% conf). ${aiAnalysis.reasoning}`;
+      finalPatterns = [...(aiAnalysis.keyPatterns || []), ...mlResult.algorithmBreakdown.flatMap((a) => a.insights).slice(0, 3)];
+    }
+
+    const fullAnalysis = {
+      method: actualMethod,
+      mlEnsemble: {
+        mainNumbers: mlResult.mainNumbers,
+        bonusNumber: mlResult.bonusNumber,
+        confidence: mlResult.confidence,
+        ensembleWeights: mlResult.ensembleWeights,
+        algorithmBreakdown: mlResult.algorithmBreakdown.map((a) => ({
+          name: a.name,
+          description: a.description,
+          predictedNumbers: a.predictedNumbers,
+          predictedBonus: a.predictedBonus,
+          weight: a.weight,
+          confidence: a.confidence,
+          insights: a.insights,
+        })),
+      },
+      aiAnalysis: aiAnalysis ? {
+        mainNumbers: aiAnalysis.mainNumbers,
+        bonusNumber: aiAnalysis.bonusNumber,
+        confidence: aiAnalysis.confidenceScore,
+        reasoning: aiAnalysis.reasoning,
+        keyPatterns: aiAnalysis.keyPatterns,
+      } : null,
+      keyPatterns: finalPatterns,
+      historicalDrawsAnalyzed: recentResults.length,
+    };
 
     const predicted = await db
       .insert(lotteryPredictions)
       .values({
         gameId: game.id,
-        predictedNumbers: analysis.mainNumbers.join(","),
-        bonusNumber: analysis.bonusNumber,
-        confidenceScore: analysis.confidenceScore,
-        reasoning: analysis.reasoning,
-        analysisJson: analysis,
+        predictedNumbers: finalNumbers.join(","),
+        bonusNumber: finalBonus,
+        confidenceScore: finalConfidence.toFixed(2),
+        reasoning: finalReasoning,
+        analysisJson: fullAnalysis,
       })
       .returning();
 
@@ -149,11 +235,14 @@ Respond ONLY with valid JSON in this exact format:
       id: predicted[0].id,
       gameKey,
       gameName: game.name,
-      mainNumbers: analysis.mainNumbers,
-      bonusNumber: analysis.bonusNumber,
-      confidenceScore: analysis.confidenceScore,
-      reasoning: analysis.reasoning,
-      keyPatterns: analysis.keyPatterns || [],
+      method: actualMethod,
+      mainNumbers: finalNumbers,
+      bonusNumber: finalBonus,
+      confidenceScore: finalConfidence,
+      reasoning: finalReasoning,
+      keyPatterns: finalPatterns,
+      mlEnsemble: fullAnalysis.mlEnsemble,
+      aiAnalysis: fullAnalysis.aiAnalysis,
       createdAt: predicted[0].createdAt,
     });
   } catch (err) {
@@ -198,7 +287,7 @@ router.get("/lottery/stats", async (req, res) => {
     const correct = withResult.filter((p) => p.wasCorrect).length;
     const accuracy = withResult.length > 0 ? Number(((correct / withResult.length) * 100).toFixed(1)) : 0;
     const avgConf = total > 0 ? Number((preds.reduce((s, p) => s + (Number(p.confidenceScore) || 0), 0) / total).toFixed(3)) : 0;
-    
+
     res.json({ totalPredictions: total, correctPredictions: correct, accuracyPercentage: accuracy, averageConfidence: avgConf });
   } catch (err) {
     console.error("Error fetching lottery stats:", err);
@@ -221,7 +310,10 @@ function formatLotteryPrediction(p: any) {
     bonusNumber: p.bonusNumber,
     confidenceScore: Number(p.confidenceScore),
     reasoning: p.reasoning,
+    method: analysis.method || "ai",
     keyPatterns: analysis.keyPatterns || [],
+    mlEnsemble: analysis.mlEnsemble || null,
+    aiAnalysis: analysis.aiAnalysis || null,
     wasCorrect: p.wasCorrect ?? null,
     matchedNumbers: p.matchedNumbers ?? null,
     createdAt: p.createdAt,

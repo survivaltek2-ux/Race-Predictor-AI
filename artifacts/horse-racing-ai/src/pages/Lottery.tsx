@@ -2,16 +2,26 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button, Progress } from "@/components/ui";
 import { format } from "date-fns";
-import { BrainCircuit, Dices, ClipboardCheck, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
+import { BrainCircuit, Dices, ClipboardCheck, CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronUp, Cpu, Sparkles, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+type PredictionMethod = "hybrid" | "ml" | "ai";
+
+const METHOD_INFO: Record<string, { label: string; icon: any; description: string; color: string }> = {
+  hybrid: { label: "Hybrid ML + AI", icon: Zap, description: "Combines 6 ML algorithms with GPT-5.2 analysis", color: "text-violet-400" },
+  ml: { label: "ML Only", icon: Cpu, description: "Pure machine learning ensemble (6 algorithms)", color: "text-blue-400" },
+  ai: { label: "AI Only", icon: Sparkles, description: "GPT-5.2 pattern analysis with ML insights", color: "text-amber-400" },
+  "ml-fallback": { label: "ML Fallback", icon: Cpu, description: "ML used when AI was unavailable", color: "text-orange-400" },
+};
+
 export function Lottery() {
   const queryClient = useQueryClient();
   const [selectedGame, setSelectedGame] = useState<string>("powerball");
+  const [method, setMethod] = useState<PredictionMethod>("hybrid");
+  const [expandedPred, setExpandedPred] = useState<number | null>(null);
 
-  // Fetch available lottery games
   const { data: gamesData } = useQuery({
     queryKey: ["lottery-games"],
     queryFn: async () => {
@@ -23,7 +33,6 @@ export function Lottery() {
 
   const games = gamesData ?? [];
 
-  // Fetch predictions for selected game
   const { data: predictionsData, isLoading } = useQuery({
     queryKey: ["lottery-predictions", selectedGame],
     queryFn: async () => {
@@ -34,7 +43,6 @@ export function Lottery() {
     enabled: !!selectedGame,
   });
 
-  // Fetch stats for selected game
   const { data: statsData } = useQuery({
     queryKey: ["lottery-stats", selectedGame],
     queryFn: async () => {
@@ -54,7 +62,7 @@ export function Lottery() {
       const res = await fetch(`${BASE}/api/lottery/predictions/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gameKey: selectedGame }),
+        body: JSON.stringify({ gameKey: selectedGame, method }),
       });
       if (!res.ok) throw new Error("Failed to generate prediction");
       return res.json();
@@ -87,10 +95,9 @@ export function Lottery() {
         <h1 className="text-4xl font-display font-bold text-white mb-2 flex items-center gap-3">
           <Dices className="w-10 h-10 text-primary" /> Lottery Predictor
         </h1>
-        <p className="text-muted-foreground">AI-powered lottery number predictions using historical pattern analysis.</p>
+        <p className="text-muted-foreground">AI + Machine Learning powered lottery number predictions.</p>
       </div>
 
-      {/* Stats Summary */}
       {Object.keys(stats).length > 0 && (
         <div className="grid grid-cols-4 gap-4">
           <Card className="border-primary/20 bg-primary/5">
@@ -113,14 +120,13 @@ export function Lottery() {
           </Card>
           <Card className="border-blue-500/20 bg-blue-500/5">
             <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-blue-400">{stats.averageConfidence?.toFixed(0) || 0}%</div>
+              <div className="text-2xl font-bold text-blue-400">{Math.round((stats.averageConfidence || 0) * 100)}%</div>
               <div className="text-xs text-muted-foreground uppercase tracking-wide">Avg Confidence</div>
             </CardContent>
           </Card>
         </div>
       )}
 
-      {/* Game Selector */}
       <div className="flex flex-wrap gap-2">
         {games.map((game: any) => (
           <Button
@@ -134,13 +140,12 @@ export function Lottery() {
         ))}
       </div>
 
-      {/* Generate Prediction Button */}
       <Card className="border-primary/30 bg-primary/5">
-        <CardContent className="p-6">
+        <CardContent className="p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-bold text-white mb-1">Generate AI Prediction</h3>
-              <p className="text-sm text-muted-foreground">Uses historical pattern analysis to predict the next draw.</p>
+              <h3 className="text-lg font-bold text-white mb-1">Generate AI + ML Prediction</h3>
+              <p className="text-sm text-muted-foreground">Choose your prediction method below.</p>
             </div>
             <Button
               size="lg"
@@ -152,6 +157,32 @@ export function Lottery() {
               {generateMutation.isPending ? "Analyzing..." : "Generate"}
             </Button>
           </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            {(["hybrid", "ml", "ai"] as PredictionMethod[]).map((key) => {
+              const info = METHOD_INFO[key];
+              const Icon = info.icon;
+              return (
+                <button
+                  key={key}
+                  onClick={() => setMethod(key)}
+                  className={cn(
+                    "p-3 rounded-lg border text-left transition-all",
+                    method === key
+                      ? "border-primary bg-primary/10 ring-1 ring-primary/50"
+                      : "border-border/50 bg-card/50 hover:border-border"
+                  )}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <Icon className={cn("w-4 h-4", info.color)} />
+                    <span className="font-semibold text-sm text-white">{info.label}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{info.description}</p>
+                </button>
+              );
+            })}
+          </div>
+
           {generateMutation.isError && (
             <p className="text-destructive text-sm mt-3 flex items-center gap-2">
               <AlertCircle className="w-4 h-4" /> {(generateMutation.error as Error)?.message}
@@ -160,7 +191,34 @@ export function Lottery() {
         </CardContent>
       </Card>
 
-      {/* Predictions List */}
+      <Card className="border-violet-500/30 bg-violet-500/5">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2 text-violet-400">
+            <Cpu className="w-5 h-5" /> ML Algorithm Suite
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 pt-0">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {[
+              { name: "Weighted Frequency", desc: "Exponential recency-weighted number frequency", weight: "25%" },
+              { name: "Monte Carlo", desc: "10,000 weighted random simulations", weight: "25%" },
+              { name: "Gap Analysis", desc: "Identifies overdue numbers by interval", weight: "20%" },
+              { name: "Pair Clustering", desc: "Finds frequently co-occurring number pairs", weight: "15%" },
+              { name: "Moving Average", desc: "Short vs long term trend detection", weight: "10%" },
+              { name: "Sum Distribution", desc: "Statistical sum range optimization", weight: "5%" },
+            ].map((algo) => (
+              <div key={algo.name} className="p-3 rounded-lg bg-card/50 border border-border/30">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-white">{algo.name}</span>
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{algo.weight}</Badge>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-tight">{algo.desc}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       <Card className="bg-card border-border/50">
         <CardHeader className="bg-secondary/20">
           <CardTitle className="text-lg flex items-center gap-2">
@@ -173,6 +231,7 @@ export function Lottery() {
               <thead className="bg-secondary/20 text-muted-foreground text-xs uppercase">
                 <tr>
                   <th className="px-5 py-4 font-semibold">Date</th>
+                  <th className="px-5 py-4 font-semibold">Method</th>
                   <th className="px-5 py-4 font-semibold">Numbers</th>
                   <th className="px-5 py-4 font-semibold">Bonus</th>
                   <th className="px-5 py-4 font-semibold text-center">Confidence</th>
@@ -183,80 +242,188 @@ export function Lottery() {
               <tbody className="divide-y divide-border/50">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={6} className="p-6 text-center text-muted-foreground animate-pulse">
+                    <td colSpan={7} className="p-6 text-center text-muted-foreground animate-pulse">
                       Loading predictions...
                     </td>
                   </tr>
                 ) : predictions.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-6 text-center text-muted-foreground">
-                      No predictions yet — generate one using the AI.
+                    <td colSpan={7} className="p-6 text-center text-muted-foreground">
+                      No predictions yet — generate one using the controls above.
                     </td>
                   </tr>
                 ) : (
                   predictions.map((pred: any) => {
                     const isPending = pred.wasCorrect === null || pred.wasCorrect === undefined;
+                    const isExpanded = expandedPred === pred.id;
+                    const methodInfo = METHOD_INFO[pred.method as PredictionMethod] || METHOD_INFO.hybrid;
+                    const MethodIcon = methodInfo.icon;
+
                     return (
-                      <tr key={pred.id} className={cn("transition-colors group", isPending ? "hover:bg-amber-500/5" : "hover:bg-secondary/10")}>
-                        <td className="px-5 py-4 text-muted-foreground text-xs">
-                          {format(new Date(pred.createdAt), "MM/dd/yy HH:mm")}
-                        </td>
-                        <td className="px-5 py-4">
-                          <div className="flex gap-1.5 flex-wrap">
-                            {pred.mainNumbers.map((num: number) => (
-                              <span key={num} className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 text-primary font-bold text-sm">
-                                {num}
+                      <tr key={pred.id} className="group">
+                        <td colSpan={7} className="p-0">
+                          <div
+                            className={cn(
+                              "grid grid-cols-[auto_auto_1fr_auto_auto_auto_auto] items-center transition-colors cursor-pointer",
+                              isPending ? "hover:bg-amber-500/5" : "hover:bg-secondary/10"
+                            )}
+                            onClick={() => setExpandedPred(isExpanded ? null : pred.id)}
+                          >
+                            <div className="px-5 py-4 text-muted-foreground text-xs">
+                              {format(new Date(pred.createdAt), "MM/dd/yy HH:mm")}
+                            </div>
+                            <div className="px-3 py-4">
+                              <div className={cn("flex items-center gap-1.5 text-xs font-medium", methodInfo.color)}>
+                                <MethodIcon className="w-3.5 h-3.5" />
+                                {methodInfo.label}
+                              </div>
+                            </div>
+                            <div className="px-3 py-4">
+                              <div className="flex gap-1.5 flex-wrap">
+                                {pred.mainNumbers.map((num: number, i: number) => (
+                                  <span key={i} className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 text-primary font-bold text-sm">
+                                    {num}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="px-3 py-4">
+                              <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 font-bold text-sm">
+                                {pred.bonusNumber}
                               </span>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="px-5 py-4">
-                          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 font-bold text-sm">
-                            {pred.bonusNumber}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4 text-center">
-                          <div className="flex flex-col items-center gap-1 w-20 mx-auto">
-                            <span className="font-mono font-medium text-white text-xs">{Math.round(pred.confidenceScore * 100)}%</span>
-                            <Progress value={pred.confidenceScore * 100} className="h-1.5 w-full" />
-                          </div>
-                        </td>
-                        <td className="px-5 py-4">
-                          {isPending ? (
-                            <Badge variant="warning" className="border-dashed">
-                              Pending
-                            </Badge>
-                          ) : pred.wasCorrect ? (
-                            <div className="flex items-center gap-1.5 text-emerald-400 font-medium">
-                              <CheckCircle2 className="w-4 h-4" /> {pred.matchedNumbers}/6 Match
                             </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5 text-red-400 font-medium">
-                              <XCircle className="w-4 h-4" /> Miss
+                            <div className="px-3 py-4 text-center">
+                              <div className="flex flex-col items-center gap-1 w-20 mx-auto">
+                                <span className="font-mono font-medium text-white text-xs">{Math.round(pred.confidenceScore * 100)}%</span>
+                                <Progress value={pred.confidenceScore * 100} className="h-1.5 w-full" />
+                              </div>
                             </div>
-                          )}
-                        </td>
-                        <td className="px-5 py-4 text-right">
-                          {isPending && (
-                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 text-xs border-emerald-500/40 text-emerald-400"
-                                onClick={() => recordResultMutation.mutate({ predId: pred.id, wasCorrect: true, matchedNumbers: 6 })}
-                                disabled={recordResultMutation.isPending}
-                              >
-                                Hit
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 text-xs border-red-500/40 text-red-400"
-                                onClick={() => recordResultMutation.mutate({ predId: pred.id, wasCorrect: false, matchedNumbers: 0 })}
-                                disabled={recordResultMutation.isPending}
-                              >
-                                Miss
-                              </Button>
+                            <div className="px-3 py-4">
+                              {isPending ? (
+                                <Badge variant="warning" className="border-dashed">Pending</Badge>
+                              ) : pred.wasCorrect ? (
+                                <div className="flex items-center gap-1.5 text-emerald-400 font-medium text-xs">
+                                  <CheckCircle2 className="w-4 h-4" /> {pred.matchedNumbers}/{gameInfo?.numberOfPicks || pred.mainNumbers.length} Match
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5 text-red-400 font-medium text-xs">
+                                  <XCircle className="w-4 h-4" /> Miss
+                                </div>
+                              )}
+                            </div>
+                            <div className="px-3 py-4 flex items-center gap-2">
+                              {isPending && (
+                                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs border-emerald-500/40 text-emerald-400"
+                                    onClick={() => recordResultMutation.mutate({ predId: pred.id, wasCorrect: true, matchedNumbers: 6 })}
+                                    disabled={recordResultMutation.isPending}
+                                  >
+                                    Hit
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs border-red-500/40 text-red-400"
+                                    onClick={() => recordResultMutation.mutate({ predId: pred.id, wasCorrect: false, matchedNumbers: 0 })}
+                                    disabled={recordResultMutation.isPending}
+                                  >
+                                    Miss
+                                  </Button>
+                                </div>
+                              )}
+                              {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                            </div>
+                          </div>
+
+                          {isExpanded && (
+                            <div className="px-5 pb-5 space-y-4 bg-secondary/5 border-t border-border/30">
+                              {pred.reasoning && (
+                                <div className="pt-4">
+                                  <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">AI Reasoning</h4>
+                                  <p className="text-sm text-white/80 leading-relaxed">{pred.reasoning}</p>
+                                </div>
+                              )}
+
+                              {pred.keyPatterns && pred.keyPatterns.length > 0 && (
+                                <div>
+                                  <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Key Patterns Detected</h4>
+                                  <div className="flex flex-wrap gap-2">
+                                    {pred.keyPatterns.map((p: string, i: number) => (
+                                      <Badge key={i} variant="secondary" className="text-xs">{p}</Badge>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {pred.mlEnsemble && (
+                                <div>
+                                  <h4 className="text-xs font-semibold text-violet-400 uppercase mb-3 flex items-center gap-1.5">
+                                    <Cpu className="w-3.5 h-3.5" /> ML Algorithm Breakdown
+                                  </h4>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {pred.mlEnsemble.algorithmBreakdown?.map((algo: any, i: number) => (
+                                      <div key={i} className="p-3 rounded-lg bg-card border border-border/30">
+                                        <div className="flex items-center justify-between mb-2">
+                                          <span className="text-xs font-bold text-white">{algo.name}</span>
+                                          <span className="text-[10px] text-muted-foreground font-mono">{Math.round(algo.confidence * 100)}%</span>
+                                        </div>
+                                        <div className="flex gap-1 mb-2 flex-wrap">
+                                          {algo.predictedNumbers?.map((n: number, j: number) => (
+                                            <span
+                                              key={j}
+                                              className={cn(
+                                                "inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold",
+                                                pred.mainNumbers.includes(n)
+                                                  ? "bg-primary/30 text-primary ring-1 ring-primary/50"
+                                                  : "bg-secondary/50 text-muted-foreground"
+                                              )}
+                                            >
+                                              {n}
+                                            </span>
+                                          ))}
+                                          <span className={cn(
+                                            "inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold ml-1",
+                                            pred.bonusNumber === algo.predictedBonus
+                                              ? "bg-amber-500/30 text-amber-400 ring-1 ring-amber-500/50"
+                                              : "bg-secondary/50 text-muted-foreground"
+                                          )}>
+                                            +{algo.predictedBonus}
+                                          </span>
+                                        </div>
+                                        <div className="space-y-0.5">
+                                          {algo.insights?.map((insight: string, k: number) => (
+                                            <p key={k} className="text-[10px] text-muted-foreground leading-tight">• {insight}</p>
+                                          ))}
+                                        </div>
+                                        <Progress value={algo.confidence * 100} className="h-1 mt-2" />
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  {pred.mlEnsemble.ensembleWeights && (
+                                    <div className="mt-3 p-3 rounded-lg bg-card border border-border/30">
+                                      <h5 className="text-xs font-semibold text-muted-foreground mb-2">Ensemble Weights</h5>
+                                      <div className="flex flex-wrap gap-3">
+                                        {Object.entries(pred.mlEnsemble.ensembleWeights).map(([name, weight]: [string, any]) => (
+                                          <div key={name} className="flex items-center gap-2">
+                                            <span className="text-[10px] text-white/70">{name}:</span>
+                                            <div className="w-16 bg-secondary/30 rounded-full h-1.5">
+                                              <div
+                                                className="bg-violet-500 h-1.5 rounded-full transition-all"
+                                                style={{ width: `${Math.min(weight * 400, 100)}%` }}
+                                              />
+                                            </div>
+                                            <span className="text-[10px] font-mono text-violet-400">{(weight * 100).toFixed(1)}%</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
                         </td>
@@ -271,7 +438,7 @@ export function Lottery() {
           {!isLoading && predictions.length === 0 && (
             <div className="py-20 text-center text-muted-foreground">
               <Dices className="w-12 h-12 mx-auto mb-4 opacity-20" />
-              <p className="text-lg">No predictions yet — generate one using the AI.</p>
+              <p className="text-lg">No predictions yet — generate one using the AI + ML engine.</p>
             </div>
           )}
         </CardContent>
