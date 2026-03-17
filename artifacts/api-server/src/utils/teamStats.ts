@@ -149,7 +149,9 @@ async function getRecentForm(
     if (!us || !them) continue;
 
     const won = us.winner === true;
-    const score = `${us.score}-${them.score}`;
+    const usScore = typeof us.score === "object" ? us.score?.value ?? us.score?.displayValue ?? "?" : us.score;
+    const themScore = typeof them.score === "object" ? them.score?.value ?? them.score?.displayValue ?? "?" : them.score;
+    const score = `${usScore}-${themScore}`;
     const oppName = them.team?.abbreviation ?? "OPP";
     const isHome = us.homeAway === "home";
     const loc = isHome ? "vs" : "@";

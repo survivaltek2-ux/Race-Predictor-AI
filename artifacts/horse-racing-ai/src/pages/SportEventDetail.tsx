@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button, Progress } from "@/components/ui";
 import { format, formatDistanceToNow } from "date-fns";
-import { ArrowLeft, BrainCircuit, TrendingUp, Info, CheckCircle2, XCircle, AlertCircle, Clock, ClipboardCheck, Newspaper, Cloud, TrendingDown, Users, ShieldCheck, ShieldAlert, Activity } from "lucide-react";
+import { ArrowLeft, BrainCircuit, TrendingUp, Info, CheckCircle2, XCircle, AlertCircle, Clock, ClipboardCheck, Newspaper, Cloud, TrendingDown, Users, ShieldCheck, ShieldAlert, Activity, BarChart3, Heart, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NewsPanel } from "@/components/NewsPanel";
 
@@ -104,6 +104,17 @@ export function SportEventDetail() {
   const predictions: any[] = Array.isArray(predictionsData) ? predictionsData : (predictionsData?.predictions || []);
   const event = events.find((e) => e.id === eventId);
   const prediction = predictions.find((p) => p.externalEventId === eventId);
+
+  const { data: matchupStats, isLoading: statsLoading } = useQuery<any>({
+    queryKey: ["matchup-stats", sport, event?.home_team, event?.away_team],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/sports/matchup-stats?sport=${sport}&home=${encodeURIComponent(event.home_team)}&away=${encodeURIComponent(event.away_team)}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !!event?.home_team && !!event?.away_team,
+  });
 
   const generateMutation = useMutation({
     mutationFn: async () => {
@@ -302,6 +313,137 @@ export function SportEventDetail() {
               )}
             </CardContent>
           </Card>
+
+          {(matchupStats?.home || matchupStats?.away) && (
+            <Card>
+              <CardHeader className="border-b border-border/50 bg-secondary/10">
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-emerald-400" /> Team Research
+                  <Badge variant="outline" className="text-xs ml-auto">ESPN Live Data</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-border/30">
+                  {[
+                    { team: matchupStats.away, label: event.away_team, isHome: false },
+                    { team: matchupStats.home, label: event.home_team, isHome: true },
+                  ].map(({ team, label, isHome }) => team && (
+                    <div key={label} className="p-5 space-y-4">
+                      <div className="flex items-center gap-2">
+                        {isHome ? <ShieldCheck className="w-4 h-4 text-emerald-400" /> : <ShieldAlert className="w-4 h-4 text-slate-400" />}
+                        <h3 className="font-bold text-white text-lg">{label}</h3>
+                        <Badge variant={isHome ? "default" : "secondary"} className="text-[10px]">{isHome ? "HOME" : "AWAY"}</Badge>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-secondary/30 rounded-lg p-3 text-center">
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Record</p>
+                          <p className="text-xl font-bold font-mono text-white">{team.wins}-{team.losses}</p>
+                          <p className="text-xs text-muted-foreground">{(team.winPct * 100).toFixed(1)}% win rate</p>
+                        </div>
+                        <div className="bg-secondary/30 rounded-lg p-3 text-center">
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Scoring</p>
+                          <p className="text-xl font-bold font-mono">
+                            <span className="text-emerald-400">{team.avgPointsFor?.toFixed(1)}</span>
+                            <span className="text-muted-foreground text-sm mx-1">/</span>
+                            <span className="text-red-400">{team.avgPointsAgainst?.toFixed(1)}</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground">ppg scored / allowed</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Home Record</span>
+                          <span className="font-mono text-white">{team.homeRecord}</span>
+                        </div>
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Away Record</span>
+                          <span className="font-mono text-white">{team.awayRecord}</span>
+                        </div>
+                        {team.last5 && (
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Last 5</span>
+                            <span className="font-mono text-white">{team.last5}</span>
+                          </div>
+                        )}
+                        {team.streak && (
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Streak</span>
+                            <span className={cn("font-mono font-semibold", team.streak.includes("win") ? "text-emerald-400" : "text-red-400")}>{team.streak}</span>
+                          </div>
+                        )}
+                        {team.restDays != null && (
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Rest Days</span>
+                            <span className={cn("font-mono", team.restDays <= 1 ? "text-red-400 font-bold" : "text-white")}>
+                              {team.restDays}d {team.restDays <= 1 && <Zap className="w-3 h-3 inline text-red-400" />}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {team.last5Detail?.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">Recent Games</p>
+                          {team.last5Detail.map((g: string, i: number) => (
+                            <p key={i} className={cn("text-xs font-mono px-2 py-1 rounded", g.startsWith("W") ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400")}>{g}</p>
+                          ))}
+                        </div>
+                      )}
+
+                      {team.keyInjuries?.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-amber-400 uppercase tracking-wider font-bold flex items-center gap-1">
+                            <Heart className="w-3 h-3" /> Injury Report
+                          </p>
+                          {team.keyInjuries.map((inj: any, i: number) => (
+                            <p key={i} className="text-xs text-muted-foreground flex items-center gap-1">
+                              <span className={cn("inline-block w-1.5 h-1.5 rounded-full", inj.status === "Out" ? "bg-red-500" : "bg-amber-500")} />
+                              {inj.name} <span className="text-muted-foreground/60">({inj.position})</span>
+                              <span className={cn("ml-auto font-semibold", inj.status === "Out" ? "text-red-400" : "text-amber-400")}>{inj.status}</span>
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {matchupStats?.h2hHistory?.length > 0 && (
+            <Card className="bg-card/60">
+              <CardContent className="p-5 space-y-3">
+                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-violet-400" /> Our Prior Predictions for These Teams
+                </h3>
+                <div className="space-y-1.5">
+                  {matchupStats.h2hHistory.map((h: any, i: number) => (
+                    <div key={i} className={cn("flex items-center justify-between text-xs px-3 py-2 rounded-lg",
+                      h.wasCorrect === true ? "bg-emerald-500/10" : h.wasCorrect === false ? "bg-red-500/10" : "bg-secondary/30"
+                    )}>
+                      <span className="text-muted-foreground">{format(new Date(h.date), "MMM d")}</span>
+                      <span className="text-white font-mono">{h.matchup}</span>
+                      <span className="text-primary font-semibold">Picked: {h.predictedWinner}</span>
+                      <span className={cn("font-bold",
+                        h.wasCorrect === true ? "text-emerald-400" : h.wasCorrect === false ? "text-red-400" : "text-muted-foreground"
+                      )}>
+                        {h.wasCorrect === true ? "HIT" : h.wasCorrect === false ? "MISS" : "Pending"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {statsLoading && (
+            <div className="space-y-4">
+              <div className="h-64 rounded-2xl bg-secondary/50 animate-pulse" />
+            </div>
+          )}
 
           {/* Implied Probabilities */}
           {bookmakers.length > 0 && (() => {

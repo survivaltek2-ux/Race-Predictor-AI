@@ -266,6 +266,57 @@ function buildOddsSection(oddsData: any, homeTeam: string, awayTeam: string): st
   return sections.join("\n\n");
 }
 
+router.get("/sports/matchup-stats", async (req, res) => {
+  try {
+    const { sport, home, away } = req.query as { sport?: string; home?: string; away?: string };
+    if (!sport || !home || !away) {
+      return res.status(400).json({ error: "sport, home, and away query params required" });
+    }
+
+    const oddsApiSport = SPORT_KEY_MAP[sport] || sport;
+    const stats = await fetchMatchupStats(oddsApiSport, home, away);
+
+    const teamPreds = await db
+      .select({
+        homeTeam: sportsPredictionsTable.homeTeam,
+        awayTeam: sportsPredictionsTable.awayTeam,
+        predictedWinner: sportsPredictionsTable.predictedWinner,
+        wasCorrect: sportsPredictionsTable.wasCorrect,
+        actualWinner: sportsPredictionsTable.actualWinner,
+        confidenceScore: sportsPredictionsTable.confidenceScore,
+        commenceTime: sportsPredictionsTable.commenceTime,
+      })
+      .from(sportsPredictionsTable)
+      .where(
+        and(
+          eq(sportsPredictionsTable.sportKey, oddsApiSport),
+          or(
+            eq(sportsPredictionsTable.homeTeam, home),
+            eq(sportsPredictionsTable.awayTeam, home),
+            eq(sportsPredictionsTable.homeTeam, away),
+            eq(sportsPredictionsTable.awayTeam, away),
+          )
+        )
+      )
+      .orderBy(desc(sportsPredictionsTable.commenceTime))
+      .limit(10);
+
+    const h2hHistory = teamPreds.map((p) => ({
+      matchup: `${p.awayTeam} @ ${p.homeTeam}`,
+      date: p.commenceTime,
+      predictedWinner: p.predictedWinner,
+      wasCorrect: p.wasCorrect,
+      actualWinner: p.actualWinner,
+      confidence: p.confidenceScore,
+    }));
+
+    res.json({ home: stats.home, away: stats.away, h2hHistory });
+  } catch (err) {
+    console.error("Error fetching matchup stats:", err);
+    res.status(500).json({ error: "Failed to fetch matchup stats" });
+  }
+});
+
 router.post("/sports/predictions", async (req, res) => {
   try {
     const { eventId, sportKey, sportTitle, homeTeam, awayTeam, commenceTime, oddsData } = req.body;
