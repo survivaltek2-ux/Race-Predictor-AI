@@ -98,7 +98,11 @@ React + Vite frontend for the AI Sports Predictor. Features:
 - **Horse Racing** — race predictions with pace analysis
 - **Sports Center** — NFL, NBA, MLB, NHL, Boxing events with live odds (The Odds API)
 - **Sports Picks** — prediction history with AI training feedback
-- **Lottery Predictor** — ML-powered lottery number predictions (Powerball, Mega Millions)
+- **Lottery Predictor** — ML-powered lottery number predictions (6 games: Powerball, Mega Millions, Cash4Life, NY Lotto, Take 5, Pick 10)
+  - Hot/Cold number analysis (last 30 draws vs all-time)
+  - Number Frequency Heatmap (color-coded grid)
+  - Prediction Performance Trends with running accuracy
+  - Auto-compare predictions against actual results
 
 Key pages: `src/pages/Lottery.tsx`, `src/pages/SportEvents.tsx`, `src/pages/SportsPredictions.tsx`
 
@@ -117,12 +121,16 @@ Pulls real historical lottery results from the **NY Open Data API** (free, no AP
 - **Pick 10**: `data.ny.gov/resource/bycu-cw7c.json` (since 1987, no bonus, pick 10 from 80)
 
 Features:
-- Auto-syncs on server startup (3s delay)
+- Auto-syncs on server startup (3s delay) and every 6 hours
+- Auto-compare: after sync, compares pending predictions against the immediate next draw's actual results
 - Incremental sync — only fetches draws newer than the latest in DB
 - Pagination — fetches up to 5,000 records per game (5 pages x 1,000)
 - Manual sync via `POST /api/lottery/sync`
 - Data status via `GET /api/lottery/data-status`
 - Recent results via `GET /api/lottery/results?gameKey=powerball&limit=10`
+- Hot/Cold analysis via `GET /api/lottery/hot-cold?gameKey=powerball`
+- Prediction trends via `GET /api/lottery/trends?gameKey=powerball`
+- Sports accuracy per sport via `GET /api/sports/predictions/accuracy-by-sport`
 
 ### ML Engine (`artifacts/api-server/src/lib/lotteryML.ts`)
 

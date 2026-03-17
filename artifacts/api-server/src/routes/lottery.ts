@@ -3,7 +3,7 @@ import { db, lotteryGames, lotteryResults, lotteryPredictions } from "@workspace
 import { eq, desc } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { runMLEnsemble, parseDrawResults } from "../lib/lotteryML";
-import { syncLotteryData, getLotteryDataStatus } from "../lib/lotterySync";
+import { syncLotteryData, getLotteryDataStatus, autoComparePredictions } from "../lib/lotterySync";
 
 const router: IRouter = Router();
 
@@ -312,7 +312,9 @@ router.post("/lottery/sync", async (req, res) => {
     const gameKey = req.body?.gameKey as string | undefined;
     console.log(`[LotterySync] Manual sync triggered${gameKey ? ` for ${gameKey}` : " for all games"}`);
     const results = await syncLotteryData(gameKey);
-    res.json({ success: true, results });
+    const compareResult = await autoComparePredictions();
+    console.log(`[AutoCompare] Compared ${compareResult.compared} predictions, ${compareResult.matched} correct`);
+    res.json({ success: true, results, autoCompare: compareResult });
   } catch (err) {
     console.error("Error syncing lottery data:", err);
     res.status(500).json({ error: "Failed to sync lottery data" });
@@ -358,6 +360,128 @@ router.get("/lottery/results", async (req, res) => {
   } catch (err) {
     console.error("Error fetching lottery results:", err);
     res.status(500).json({ error: "Failed to fetch results" });
+  }
+});
+
+router.get("/lottery/hot-cold", async (req, res) => {
+  try {
+    const gameKey = req.query.gameKey as string;
+    if (!gameKey) return res.status(400).json({ error: "gameKey is required" });
+
+    const [game] = await db.select().from(lotteryGames).where(eq(lotteryGames.gameKey, gameKey));
+    if (!game) return res.status(404).json({ error: "Game not found" });
+
+    const recentLimit = 30;
+    const allResults = await db
+      .select()
+      .from(lotteryResults)
+      .where(eq(lotteryResults.gameId, game.id))
+      .orderBy(desc(lotteryResults.drawDate))
+      .limit(500);
+
+    const recentResults = allResults.slice(0, recentLimit);
+    const totalDraws = allResults.length;
+
+    const allFreq: Record<number, number> = {};
+    const recentFreq: Record<number, number> = {};
+    const lastSeen: Record<number, number> = {};
+
+    allResults.forEach((r, drawIdx) => {
+      const nums = r.winningNumbers.split(",").map((n) => parseInt(n.trim()));
+      nums.forEach((num) => {
+        allFreq[num] = (allFreq[num] || 0) + 1;
+        if (drawIdx < recentLimit) recentFreq[num] = (recentFreq[num] || 0) + 1;
+        if (lastSeen[num] === undefined) lastSeen[num] = drawIdx;
+      });
+    });
+
+    const numbers = [];
+    for (let i = 1; i <= game.maxNumber; i++) {
+      numbers.push({
+        number: i,
+        totalFreq: allFreq[i] || 0,
+        recentFreq: recentFreq[i] || 0,
+        drawsSinceLastSeen: lastSeen[i] !== undefined ? lastSeen[i] : totalDraws,
+        pct: totalDraws > 0 ? Number(((allFreq[i] || 0) / totalDraws * 100).toFixed(1)) : 0,
+      });
+    }
+
+    const hot = [...numbers].sort((a, b) => b.recentFreq - a.recentFreq).slice(0, 10);
+    const cold = [...numbers].sort((a, b) => b.drawsSinceLastSeen - a.drawsSinceLastSeen).slice(0, 10);
+    const overdue = [...numbers].sort((a, b) => b.drawsSinceLastSeen - a.drawsSinceLastSeen).slice(0, 5);
+
+    res.json({
+      gameKey,
+      totalDrawsAnalyzed: totalDraws,
+      recentWindow: recentLimit,
+      hot,
+      cold,
+      overdue,
+      heatmap: numbers,
+    });
+  } catch (err) {
+    console.error("Error fetching hot/cold numbers:", err);
+    res.status(500).json({ error: "Failed to fetch number analysis" });
+  }
+});
+
+router.get("/lottery/trends", async (req, res) => {
+  try {
+    const gameKey = req.query.gameKey as string | undefined;
+    let preds = await db.select().from(lotteryPredictions).orderBy(lotteryPredictions.createdAt);
+
+    if (gameKey) {
+      const [game] = await db.select().from(lotteryGames).where(eq(lotteryGames.gameKey, gameKey));
+      if (game) preds = preds.filter((p) => p.gameId === game.id);
+    }
+
+    let runningCorrect = 0;
+    let runningTotal = 0;
+    const trendData = preds.map((p, idx) => {
+      const hasResult = p.wasCorrect !== null && p.wasCorrect !== undefined;
+      if (hasResult) {
+        runningTotal++;
+        if (p.wasCorrect) runningCorrect++;
+      }
+      return {
+        index: idx + 1,
+        date: p.createdAt,
+        confidence: Number(p.confidenceScore),
+        matchedNumbers: p.matchedNumbers || 0,
+        wasCorrect: p.wasCorrect ?? null,
+        runningAccuracy: runningTotal > 0 ? Number((runningCorrect / runningTotal * 100).toFixed(1)) : null,
+      };
+    });
+
+    const confByMethod: Record<string, number[]> = {};
+    preds.forEach((p) => {
+      let analysis: any = {};
+      try { analysis = typeof p.analysisJson === "string" ? JSON.parse(p.analysisJson) : p.analysisJson || {}; } catch {}
+      const method = analysis.method || "unknown";
+      if (!confByMethod[method]) confByMethod[method] = [];
+      confByMethod[method].push(Number(p.confidenceScore));
+    });
+
+    const methodStats = Object.entries(confByMethod).map(([method, scores]) => ({
+      method,
+      count: scores.length,
+      avgConfidence: Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(3)),
+    }));
+
+    res.json({ trends: trendData, methodStats, totalPredictions: preds.length });
+  } catch (err) {
+    console.error("Error fetching prediction trends:", err);
+    res.status(500).json({ error: "Failed to fetch trends" });
+  }
+});
+
+router.post("/lottery/auto-compare", async (_req, res) => {
+  try {
+    const result = await autoComparePredictions();
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error("Error auto-comparing:", err);
+    res.status(500).json({ error: "Failed to auto-compare" });
   }
 });
 

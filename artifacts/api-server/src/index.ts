@@ -1,5 +1,5 @@
 import app from "./app";
-import { syncLotteryData } from "./lib/lotterySync";
+import { syncLotteryData, autoComparePredictions } from "./lib/lotterySync";
 import { db, lotteryGames } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
@@ -47,8 +47,33 @@ app.listen(port, () => {
           console.log(`[LotterySync] ${r.gameName}: ${r.inserted} new draws added (${r.totalInDb} total)`);
         }
       });
+      const compareResult = await autoComparePredictions();
+      if (compareResult.compared > 0) {
+        console.log(`[AutoCompare] Compared ${compareResult.compared} predictions, ${compareResult.matched} correct`);
+      }
     } catch (err) {
       console.error("[LotterySync] Auto-sync failed:", err);
     }
   }, 3000);
+
+  const SIX_HOURS = 6 * 60 * 60 * 1000;
+  setInterval(async () => {
+    try {
+      console.log("[ScheduledSync] Running 6-hour lottery sync...");
+      const results = await syncLotteryData();
+      results.forEach((r) => {
+        if (r.error) {
+          console.error(`[ScheduledSync] ${r.gameName}: ERROR - ${r.error}`);
+        } else if (r.inserted > 0) {
+          console.log(`[ScheduledSync] ${r.gameName}: ${r.inserted} new draws`);
+        }
+      });
+      const compareResult = await autoComparePredictions();
+      if (compareResult.compared > 0) {
+        console.log(`[ScheduledSync] Auto-compared ${compareResult.compared} predictions`);
+      }
+    } catch (err) {
+      console.error("[ScheduledSync] Failed:", err);
+    }
+  }, SIX_HOURS);
 });

@@ -1,5 +1,5 @@
-import { db, lotteryGames, lotteryResults } from "@workspace/db";
-import { eq, desc, and } from "drizzle-orm";
+import { db, lotteryGames, lotteryResults, lotteryPredictions } from "@workspace/db";
+import { eq, desc, asc, and, isNull, gte } from "drizzle-orm";
 
 type ParsedRow = { drawDate: Date; numbers: number[]; bonus: number; multiplier?: number } | null;
 
@@ -242,6 +242,58 @@ export async function syncLotteryData(gameKey?: string): Promise<SyncResult[]> {
   }
 
   return results;
+}
+
+export async function autoComparePredictions(): Promise<{ compared: number; matched: number }> {
+  const pendingPreds = await db
+    .select()
+    .from(lotteryPredictions)
+    .where(isNull(lotteryPredictions.wasCorrect));
+
+  let compared = 0;
+  let matched = 0;
+
+  for (const pred of pendingPreds) {
+    const predDate = new Date(pred.createdAt);
+    const [nextDraw] = await db
+      .select()
+      .from(lotteryResults)
+      .where(
+        and(
+          eq(lotteryResults.gameId, pred.gameId),
+          gte(lotteryResults.drawDate, predDate),
+        )
+      )
+      .orderBy(asc(lotteryResults.drawDate))
+      .limit(1);
+
+    if (!nextDraw) continue;
+
+    const predictedNums = pred.predictedNumbers.split(",").map((n) => parseInt(n.trim()));
+    const actualNums = nextDraw.winningNumbers.split(",").map((n) => parseInt(n.trim()));
+
+    const matchCount = predictedNums.filter((n) => actualNums.includes(n)).length;
+    const bonusMatch = pred.bonusNumber > 0 && pred.bonusNumber === nextDraw.bonusNumber;
+
+    const game = await db.select().from(lotteryGames).where(eq(lotteryGames.id, pred.gameId)).limit(1);
+    const totalPicks = game.length > 0 ? game[0].numberOfPicks : predictedNums.length;
+    const isCorrect = matchCount === totalPicks && (game[0]?.bonusNumberMax === 0 || bonusMatch);
+
+    await db
+      .update(lotteryPredictions)
+      .set({
+        wasCorrect: isCorrect,
+        matchedNumbers: matchCount,
+      })
+      .where(eq(lotteryPredictions.id, pred.id));
+
+    compared++;
+    if (isCorrect) matched++;
+
+    console.log(`[AutoCompare] Prediction #${pred.id}: ${matchCount}/${totalPicks} numbers matched${bonusMatch ? " + bonus" : ""} → ${isCorrect ? "CORRECT" : "miss"}`);
+  }
+
+  return { compared, matched };
 }
 
 export async function getLotteryDataStatus(): Promise<{ gameKey: string; gameName: string; totalResults: number; latestDraw: string | null; oldestDraw: string | null }[]> {

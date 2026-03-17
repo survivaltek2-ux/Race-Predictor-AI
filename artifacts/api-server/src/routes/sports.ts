@@ -596,6 +596,51 @@ router.get("/sports/predictions/stats", async (req, res) => {
   }
 });
 
+router.get("/sports/predictions/accuracy-by-sport", async (_req, res) => {
+  try {
+    const all = await db.select().from(sportsPredictionsTable);
+
+    const sportMap: Record<string, { sportTitle: string; total: number; withResult: number; correct: number; totalConf: number }> = {};
+
+    for (const p of all) {
+      if (!sportMap[p.sportKey]) {
+        sportMap[p.sportKey] = { sportTitle: p.sportTitle, total: 0, withResult: 0, correct: 0, totalConf: 0 };
+      }
+      const s = sportMap[p.sportKey];
+      s.total++;
+      s.totalConf += p.confidenceScore;
+      if (p.wasCorrect !== null && p.wasCorrect !== undefined) {
+        s.withResult++;
+        if (p.wasCorrect) s.correct++;
+      }
+    }
+
+    const breakdown = Object.entries(sportMap).map(([sportKey, s]) => ({
+      sportKey,
+      sportTitle: s.sportTitle,
+      totalPredictions: s.total,
+      resultsRecorded: s.withResult,
+      correct: s.correct,
+      accuracy: s.withResult > 0 ? Number((s.correct / s.withResult * 100).toFixed(1)) : 0,
+      avgConfidence: s.total > 0 ? Number((s.totalConf / s.total * 100).toFixed(1)) : 0,
+    }));
+
+    const overall = {
+      totalPredictions: all.length,
+      resultsRecorded: all.filter((p) => p.wasCorrect !== null).length,
+      correct: all.filter((p) => p.wasCorrect === true).length,
+      accuracy: 0 as number,
+      avgConfidence: all.length > 0 ? Number((all.reduce((s, p) => s + p.confidenceScore, 0) / all.length * 100).toFixed(1)) : 0,
+    };
+    overall.accuracy = overall.resultsRecorded > 0 ? Number((overall.correct / overall.resultsRecorded * 100).toFixed(1)) : 0;
+
+    res.json({ breakdown, overall });
+  } catch (err) {
+    console.error("Error fetching accuracy by sport:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 function formatSportsPrediction(p: any) {
   let analysis: any = {};
   try { analysis = JSON.parse(p.analysisJson || "{}"); } catch {}

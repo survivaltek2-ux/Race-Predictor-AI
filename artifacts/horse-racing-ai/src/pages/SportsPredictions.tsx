@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button, Progress } from "@/components/ui";
 import { format } from "date-fns";
 import { Link } from "wouter";
-import { BrainCircuit, CheckCircle2, XCircle, ArrowRight, ClipboardCheck, MessageSquare, ThumbsUp, ThumbsDown } from "lucide-react";
+import { BrainCircuit, CheckCircle2, XCircle, ArrowRight, ClipboardCheck, MessageSquare, ThumbsUp, ThumbsDown, BarChart3, TrendingUp, Target } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -186,10 +186,23 @@ export default function SportsPredictions() {
     },
   });
 
+  const { data: accuracyData } = useQuery({
+    queryKey: ["sports-accuracy-by-sport"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/sports/predictions/accuracy-by-sport`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
   const predictions = data?.predictions ?? [];
   const stats = statsData ?? {};
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["sports-predictions", sport] });
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["sports-predictions", sport] });
+    queryClient.invalidateQueries({ queryKey: ["sports-stats", sport] });
+    queryClient.invalidateQueries({ queryKey: ["sports-accuracy-by-sport"] });
+  };
 
   const sports = [
     { key: "nfl", label: "NFL" },
@@ -237,7 +250,62 @@ export default function SportsPredictions() {
         </div>
       )}
 
-      {/* Sport Selector */}
+      {accuracyData?.breakdown?.length > 0 && (
+        <Card className="border-violet-500/30 bg-violet-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2 text-violet-400">
+              <BarChart3 className="w-4 h-4" /> Accuracy by Sport
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              {accuracyData.breakdown.map((s: any) => (
+                <button
+                  key={s.sportKey}
+                  onClick={() => setSport(s.sportKey)}
+                  className={cn(
+                    "p-3 rounded-lg border text-left transition-all",
+                    sport === s.sportKey
+                      ? "border-violet-500/50 bg-violet-500/10 ring-1 ring-violet-500/30"
+                      : "border-border/30 bg-card/30 hover:border-border/60"
+                  )}
+                >
+                  <div className="text-xs font-bold text-white mb-1">{s.sportTitle}</div>
+                  <div className="text-2xl font-bold text-violet-400">{s.accuracy}%</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {s.correct}/{s.resultsRecorded} correct
+                  </div>
+                  <div className="mt-1.5">
+                    <div className="w-full bg-secondary/30 rounded-full h-1.5">
+                      <div
+                        className={cn(
+                          "h-1.5 rounded-full transition-all",
+                          s.accuracy >= 60 ? "bg-emerald-500" : s.accuracy >= 40 ? "bg-amber-500" : "bg-red-500"
+                        )}
+                        style={{ width: `${Math.min(s.accuracy, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-1">{s.totalPredictions} picks | {s.avgConfidence}% conf</div>
+                </button>
+              ))}
+            </div>
+            {accuracyData.overall && (
+              <div className="mt-3 pt-3 border-t border-border/30 flex items-center gap-6 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <Target className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-muted-foreground">Overall:</span>
+                  <span className="font-bold text-white">{accuracyData.overall.accuracy}%</span>
+                </div>
+                <div className="text-muted-foreground">
+                  {accuracyData.overall.correct}/{accuracyData.overall.resultsRecorded} correct from {accuracyData.overall.totalPredictions} total picks
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <div className="flex flex-wrap gap-2">
         {sports.map((s) => (
           <Button

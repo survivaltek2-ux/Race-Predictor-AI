@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button, Progress } from "@/components/ui";
 import { format } from "date-fns";
-import { BrainCircuit, Dices, ClipboardCheck, CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronUp, Cpu, Sparkles, Zap, RefreshCw, Database, Calendar, TrendingUp } from "lucide-react";
+import { BrainCircuit, Dices, ClipboardCheck, CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronUp, Cpu, Sparkles, Zap, RefreshCw, Database, Calendar, TrendingUp, Flame, Snowflake, BarChart3, Target } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -72,6 +72,28 @@ export function Lottery() {
     enabled: !!selectedGame,
   });
 
+  const { data: hotColdData } = useQuery({
+    queryKey: ["lottery-hot-cold", selectedGame],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/lottery/hot-cold?gameKey=${selectedGame}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: !!selectedGame,
+  });
+
+  const { data: trendsData } = useQuery({
+    queryKey: ["lottery-trends", selectedGame],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/lottery/trends?gameKey=${selectedGame}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: !!selectedGame,
+  });
+
+  const [showHeatmap, setShowHeatmap] = useState(false);
+
   const syncMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch(`${BASE}/api/lottery/sync`, {
@@ -86,6 +108,9 @@ export function Lottery() {
       queryClient.invalidateQueries({ queryKey: ["lottery-data-status"] });
       queryClient.invalidateQueries({ queryKey: ["lottery-results"] });
       queryClient.invalidateQueries({ queryKey: ["lottery-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["lottery-hot-cold"] });
+      queryClient.invalidateQueries({ queryKey: ["lottery-trends"] });
+      queryClient.invalidateQueries({ queryKey: ["lottery-predictions"] });
     },
   });
 
@@ -258,6 +283,171 @@ export function Lottery() {
                 </div>
               ))}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {hotColdData && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card className="border-red-500/30 bg-red-500/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2 text-red-400">
+                <Flame className="w-4 h-4" /> Hot Numbers
+                <Badge variant="secondary" className="text-[10px]">Last {hotColdData.recentWindow} draws</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="flex flex-wrap gap-2">
+                {hotColdData.hot?.map((n: any) => (
+                  <div key={n.number} className="flex flex-col items-center gap-1">
+                    <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-red-500/20 text-red-400 font-bold text-sm border border-red-500/30">
+                      {n.number}
+                    </span>
+                    <span className="text-[10px] text-red-400/70">{n.recentFreq}x</span>
+                  </div>
+                ))}
+              </div>
+              {hotColdData.hot?.length === 0 && <p className="text-xs text-muted-foreground">No data yet</p>}
+            </CardContent>
+          </Card>
+
+          <Card className="border-blue-500/30 bg-blue-500/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2 text-blue-400">
+                <Snowflake className="w-4 h-4" /> Cold Numbers
+                <Badge variant="secondary" className="text-[10px]">Most overdue</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="flex flex-wrap gap-2">
+                {hotColdData.cold?.map((n: any) => (
+                  <div key={n.number} className="flex flex-col items-center gap-1">
+                    <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-500/20 text-blue-400 font-bold text-sm border border-blue-500/30">
+                      {n.number}
+                    </span>
+                    <span className="text-[10px] text-blue-400/70">{n.drawsSinceLastSeen}d ago</span>
+                  </div>
+                ))}
+              </div>
+              {hotColdData.cold?.length === 0 && <p className="text-xs text-muted-foreground">No data yet</p>}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {hotColdData?.heatmap && (
+        <Card className="border-border/50">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-2 text-muted-foreground">
+                <BarChart3 className="w-4 h-4" /> Number Frequency Heatmap
+                <Badge variant="secondary" className="text-[10px]">{hotColdData.totalDrawsAnalyzed} draws</Badge>
+              </CardTitle>
+              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowHeatmap(!showHeatmap)}>
+                {showHeatmap ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
+                {showHeatmap ? "Hide" : "Show"}
+              </Button>
+            </div>
+          </CardHeader>
+          {showHeatmap && (
+            <CardContent className="p-4 pt-0">
+              <div className="flex flex-wrap gap-1">
+                {hotColdData.heatmap.map((n: any) => {
+                  const maxFreq = Math.max(...hotColdData.heatmap.map((h: any) => h.totalFreq), 1);
+                  const intensity = n.totalFreq / maxFreq;
+                  const bg = intensity > 0.7
+                    ? "bg-red-500/40 text-red-300 border-red-500/40"
+                    : intensity > 0.5
+                    ? "bg-orange-500/30 text-orange-300 border-orange-500/30"
+                    : intensity > 0.3
+                    ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/20"
+                    : intensity > 0.1
+                    ? "bg-white/10 text-white/60 border-white/10"
+                    : "bg-white/5 text-white/30 border-white/5";
+                  return (
+                    <div
+                      key={n.number}
+                      className={cn("w-8 h-8 rounded flex items-center justify-center text-[10px] font-bold border", bg)}
+                      title={`#${n.number}: ${n.totalFreq} times (${n.pct}%)`}
+                    >
+                      {n.number}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-3 mt-3 text-[10px] text-muted-foreground">
+                <span>Low freq</span>
+                <div className="flex gap-0.5">
+                  <div className="w-4 h-3 rounded bg-white/5" />
+                  <div className="w-4 h-3 rounded bg-white/10" />
+                  <div className="w-4 h-3 rounded bg-yellow-500/20" />
+                  <div className="w-4 h-3 rounded bg-orange-500/30" />
+                  <div className="w-4 h-3 rounded bg-red-500/40" />
+                </div>
+                <span>High freq</span>
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      )}
+
+      {trendsData && trendsData.trends?.length > 0 && (
+        <Card className="border-emerald-500/30 bg-emerald-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2 text-emerald-400">
+              <Target className="w-4 h-4" /> Prediction Performance Trends
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0 space-y-4">
+            <div className="space-y-2">
+              {trendsData.trends.slice(-10).map((t: any) => (
+                <div key={t.index} className="flex items-center gap-3 text-xs">
+                  <span className="text-muted-foreground w-16 shrink-0">#{t.index}</span>
+                  <span className="text-muted-foreground w-24 shrink-0">{format(new Date(t.date), "MM/dd HH:mm")}</span>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-white/70 w-12">Conf:</span>
+                      <div className="flex-1 bg-secondary/30 rounded-full h-2 max-w-[120px]">
+                        <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${Math.round(t.confidence * 100)}%` }} />
+                      </div>
+                      <span className="font-mono text-emerald-400 w-10 text-right">{Math.round(t.confidence * 100)}%</span>
+                    </div>
+                  </div>
+                  <div className="w-12 text-center">
+                    <span className="font-mono text-amber-400">{t.matchedNumbers}</span>
+                    <span className="text-muted-foreground"> hit</span>
+                  </div>
+                  <div className="w-8">
+                    {t.wasCorrect === true && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                    {t.wasCorrect === false && <XCircle className="w-4 h-4 text-red-400" />}
+                    {t.wasCorrect === null && <span className="text-muted-foreground text-[10px]">-</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {trendsData.methodStats?.length > 0 && (
+              <div>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Performance by Method</h4>
+                <div className="grid grid-cols-3 gap-3">
+                  {trendsData.methodStats.map((ms: any) => {
+                    const info = METHOD_INFO[ms.method as PredictionMethod] || METHOD_INFO.hybrid;
+                    const Icon = info.icon;
+                    return (
+                      <div key={ms.method} className="p-3 rounded-lg bg-card/50 border border-border/30">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <Icon className={cn("w-3.5 h-3.5", info.color)} />
+                          <span className="text-xs font-semibold text-white">{info.label}</span>
+                        </div>
+                        <div className="text-lg font-bold text-white">{ms.count}</div>
+                        <div className="text-[10px] text-muted-foreground">predictions</div>
+                        <div className="text-xs text-emerald-400 mt-1">{Math.round(ms.avgConfidence * 100)}% avg conf</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
