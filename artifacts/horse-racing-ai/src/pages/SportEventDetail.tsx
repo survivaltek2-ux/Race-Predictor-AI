@@ -341,8 +341,11 @@ export function SportEventDetail() {
                       <div className="grid grid-cols-2 gap-3">
                         <div className="bg-secondary/30 rounded-lg p-3 text-center">
                           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Record</p>
-                          <p className="text-xl font-bold font-mono text-white">{team.wins}-{team.losses}</p>
-                          <p className="text-xs text-muted-foreground">{(team.winPct * 100).toFixed(1)}% win rate</p>
+                          <p className="text-xl font-bold font-mono text-white">{team.wins}-{team.draws > 0 ? `${team.draws}-` : ""}{team.losses}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {(team.winPct * 100).toFixed(1)}% win rate
+                            {team.leaguePoints != null && <span className="ml-1 text-primary font-semibold">({team.leaguePoints} pts)</span>}
+                          </p>
                         </div>
                         <div className="bg-secondary/30 rounded-lg p-3 text-center">
                           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Scoring</p>
@@ -351,7 +354,7 @@ export function SportEventDetail() {
                             <span className="text-muted-foreground text-sm mx-1">/</span>
                             <span className="text-red-400">{team.avgPointsAgainst?.toFixed(1)}</span>
                           </p>
-                          <p className="text-xs text-muted-foreground">ppg scored / allowed</p>
+                          <p className="text-xs text-muted-foreground">{event.sport_key?.startsWith("soccer") ? "goals" : "ppg"} scored / allowed</p>
                         </div>
                       </div>
 
@@ -424,7 +427,7 @@ export function SportEventDetail() {
                         {team.streak && (
                           <div className="flex justify-between text-muted-foreground">
                             <span>Streak</span>
-                            <span className={cn("font-mono font-semibold", team.streak.includes("win") ? "text-emerald-400" : "text-red-400")}>{team.streak}</span>
+                            <span className={cn("font-mono font-semibold", team.streak.includes("win") ? "text-emerald-400" : team.streak.includes("draw") ? "text-amber-400" : "text-red-400")}>{team.streak}</span>
                           </div>
                         )}
                         {team.restDays != null && (
@@ -441,7 +444,11 @@ export function SportEventDetail() {
                         <div className="space-y-1">
                           <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">Recent Games (Last 10)</p>
                           {team.last10Detail.map((g: string, i: number) => (
-                            <p key={i} className={cn("text-xs font-mono px-2 py-1 rounded", g.startsWith("W") ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400")}>{g}</p>
+                            <p key={i} className={cn("text-xs font-mono px-2 py-1 rounded",
+                              g.startsWith("W") ? "bg-emerald-500/10 text-emerald-400" :
+                              g.startsWith("D") ? "bg-amber-500/10 text-amber-400" :
+                              "bg-red-500/10 text-red-400"
+                            )}>{g}</p>
                           ))}
                         </div>
                       )}

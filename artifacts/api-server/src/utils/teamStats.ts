@@ -6,8 +6,65 @@ const SPORT_MAP: Record<string, { sport: string; league: string }> = {
   americanfootball_ncaaf: { sport: "football", league: "college-football" },
   basketball_nba: { sport: "basketball", league: "nba" },
   basketball_ncaab: { sport: "basketball", league: "mens-college-basketball" },
+  basketball_wncaab: { sport: "basketball", league: "womens-college-basketball" },
+  basketball_euroleague: { sport: "basketball", league: "euroleague" },
   baseball_mlb: { sport: "baseball", league: "mlb" },
+  baseball_mlb_preseason: { sport: "baseball", league: "mlb" },
+  baseball_ncaa: { sport: "baseball", league: "college-baseball" },
   icehockey_nhl: { sport: "hockey", league: "nhl" },
+  icehockey_ahl: { sport: "hockey", league: "ahl" },
+  soccer_epl: { sport: "soccer", league: "eng.1" },
+  soccer_england_league1: { sport: "soccer", league: "eng.3" },
+  soccer_england_league2: { sport: "soccer", league: "eng.4" },
+  soccer_efl_champ: { sport: "soccer", league: "eng.2" },
+  soccer_fa_cup: { sport: "soccer", league: "eng.fa" },
+  soccer_england_efl_cup: { sport: "soccer", league: "eng.league_cup" },
+  soccer_spain_la_liga: { sport: "soccer", league: "esp.1" },
+  soccer_spain_segunda_division: { sport: "soccer", league: "esp.2" },
+  soccer_spain_copa_del_rey: { sport: "soccer", league: "esp.copa_del_rey" },
+  soccer_germany_bundesliga: { sport: "soccer", league: "ger.1" },
+  soccer_germany_bundesliga2: { sport: "soccer", league: "ger.2" },
+  soccer_germany_liga3: { sport: "soccer", league: "ger.3" },
+  soccer_germany_dfb_pokal: { sport: "soccer", league: "ger.dfb_pokal" },
+  soccer_italy_serie_a: { sport: "soccer", league: "ita.1" },
+  soccer_italy_serie_b: { sport: "soccer", league: "ita.2" },
+  soccer_france_ligue_one: { sport: "soccer", league: "fra.1" },
+  soccer_france_ligue_two: { sport: "soccer", league: "fra.2" },
+  soccer_france_coupe_de_france: { sport: "soccer", league: "fra.coupe_de_france" },
+  soccer_netherlands_eredivisie: { sport: "soccer", league: "ned.1" },
+  soccer_portugal_primeira_liga: { sport: "soccer", league: "por.1" },
+  soccer_belgium_first_div: { sport: "soccer", league: "bel.1" },
+  soccer_turkey_super_league: { sport: "soccer", league: "tur.1" },
+  soccer_greece_super_league: { sport: "soccer", league: "gre.1" },
+  soccer_austria_bundesliga: { sport: "soccer", league: "aut.1" },
+  soccer_denmark_superliga: { sport: "soccer", league: "den.1" },
+  soccer_sweden_allsvenskan: { sport: "soccer", league: "swe.1" },
+  soccer_norway_eliteserien: { sport: "soccer", league: "nor.1" },
+  soccer_poland_ekstraklasa: { sport: "soccer", league: "pol.1" },
+  soccer_switzerland_superleague: { sport: "soccer", league: "sui.1" },
+  soccer_russia_premier_league: { sport: "soccer", league: "rus.1" },
+  soccer_usa_mls: { sport: "soccer", league: "usa.1" },
+  soccer_mexico_ligamx: { sport: "soccer", league: "mex.1" },
+  soccer_argentina_primera_division: { sport: "soccer", league: "arg.1" },
+  soccer_brazil_campeonato: { sport: "soccer", league: "bra.1" },
+  soccer_brazil_serie_b: { sport: "soccer", league: "bra.2" },
+  soccer_australia_aleague: { sport: "soccer", league: "aus.1" },
+  soccer_japan_j_league: { sport: "soccer", league: "jpn.1" },
+  soccer_korea_kleague1: { sport: "soccer", league: "kor.1" },
+  soccer_china_superleague: { sport: "soccer", league: "chn.1" },
+  soccer_spl: { sport: "soccer", league: "sco.1" },
+  soccer_league_of_ireland: { sport: "soccer", league: "irl.1" },
+  soccer_uefa_champs_league: { sport: "soccer", league: "uefa.champions" },
+  soccer_uefa_europa_league: { sport: "soccer", league: "uefa.europa" },
+  soccer_uefa_europa_conference_league: { sport: "soccer", league: "uefa.europa.conf" },
+  soccer_fifa_world_cup: { sport: "soccer", league: "fifa.world" },
+  soccer_fifa_world_cup_qualifiers_europe: { sport: "soccer", league: "fifa.worldq.uefa" },
+  rugbyleague_nrl: { sport: "rugby-league", league: "nrl" },
+  aussierules_afl: { sport: "australian-football", league: "afl" },
+  lacrosse_ncaa: { sport: "lacrosse", league: "ncaa" },
+  mma_mixed_martial_arts: { sport: "mma", league: "ufc" },
+  cricket_ipl: { sport: "cricket", league: "ipl" },
+  cricket_international_t20: { sport: "cricket", league: "international-t20" },
 };
 
 async function espnGet(url: string): Promise<any> {
@@ -55,6 +112,7 @@ export interface TeamStats {
   name: string;
   wins: number;
   losses: number;
+  draws: number;
   gamesPlayed: number;
   winPct: number;
   avgPointsFor: number;
@@ -79,6 +137,7 @@ export interface TeamStats {
   teamStats: Record<string, number | string> | null;
   powerRating: number | null;
   elo: number | null;
+  leaguePoints: number | null;
 }
 
 export interface HeadToHead {
@@ -107,9 +166,9 @@ async function getTeamRecord(
   const data = await espnGet(`${ESPN_BASE}/${sport}/${league}/teams/${teamId}`);
   const record = data?.team?.record?.items ?? [];
 
-  const overall = record.find((r: any) => r.type === "total" || r.description === "Overall") ?? record[0];
+  const overall = record.find((r: any) => r.type === "total" || r.description === "Overall" || r.description === "Overall Record") ?? record[0];
   const homeRec = record.find((r: any) => r.type === "home" || r.description === "Home");
-  const awayRec = record.find((r: any) => r.type === "road" || r.description === "Away");
+  const awayRec = record.find((r: any) => r.type === "road" || r.description === "Road" || r.description === "Away");
 
   const stat = (items: any[], name: string): number => {
     const s = items?.find((s: any) => s.name === name);
@@ -119,23 +178,31 @@ async function getTeamRecord(
   const os = overall?.stats ?? [];
   const wins = stat(os, "wins");
   const losses = stat(os, "losses");
-  const gamesPlayed = stat(os, "gamesPlayed") || wins + losses;
+  const draws = stat(os, "ties") || stat(os, "draws");
+  const gamesPlayed = stat(os, "gamesPlayed") || wins + losses + draws;
   const winPct = gamesPlayed > 0 ? wins / gamesPlayed : 0;
-  const avgPF = stat(os, "avgPointsFor") || stat(os, "pointsFor") / (gamesPlayed || 1);
-  const avgPA = stat(os, "avgPointsAgainst") || stat(os, "pointsAgainst") / (gamesPlayed || 1);
-  const pointDiff = stat(os, "differential") || (avgPF - avgPA) * gamesPlayed;
+  const ptsFor = stat(os, "pointsFor") || stat(os, "goalsFor");
+  const ptsAgainst = stat(os, "pointsAgainst") || stat(os, "goalsAgainst");
+  const avgPF = stat(os, "avgPointsFor") || (gamesPlayed > 0 ? ptsFor / gamesPlayed : 0);
+  const avgPA = stat(os, "avgPointsAgainst") || (gamesPlayed > 0 ? ptsAgainst / gamesPlayed : 0);
+  const pointDiff = stat(os, "differential") || stat(os, "pointDifferential") || (avgPF - avgPA) * gamesPlayed;
+  const leaguePoints = stat(os, "points") || null;
+
+  const isSoccer = sport === "soccer";
 
   const fmtRecord = (r: any) => {
     if (!r?.stats) return "N/A";
     const w = stat(r.stats, "wins");
     const l = stat(r.stats, "losses");
-    return `${w}-${l}`;
+    const d = stat(r.stats, "ties") || stat(r.stats, "draws");
+    return isSoccer || d > 0 ? `${w}-${d}-${l}` : `${w}-${l}`;
   };
 
   return {
     name: teamName,
     wins,
     losses,
+    draws,
     gamesPlayed,
     winPct,
     avgPointsFor: avgPF,
@@ -143,6 +210,19 @@ async function getTeamRecord(
     pointDiff,
     homeRecord: fmtRecord(homeRec),
     awayRecord: fmtRecord(awayRec),
+    standingsSummary: null,
+    conferenceRank: null,
+    divisionRecord: null,
+    conferenceRecord: null,
+    overallRank: null,
+    offensiveRank: null,
+    defensiveRank: null,
+    teamStats: null,
+    powerRating: null,
+    elo: null,
+    leaguePoints: leaguePoints || null,
+    last10: "",
+    last10Detail: [],
   };
 }
 
@@ -171,14 +251,17 @@ async function getRecentForm(
     if (!us || !them) continue;
 
     const won = us.winner === true;
+    const lost = them.winner === true;
+    const draw = !won && !lost;
     const usScore = typeof us.score === "object" ? us.score?.value ?? us.score?.displayValue ?? "?" : us.score;
     const themScore = typeof them.score === "object" ? them.score?.value ?? them.score?.displayValue ?? "?" : them.score;
     const score = `${usScore}-${themScore}`;
     const oppName = them.team?.abbreviation ?? "OPP";
     const isHome = us.homeAway === "home";
     const loc = isHome ? "vs" : "@";
-    results.push(won ? "W" : "L");
-    details.push(`${won ? "W" : "L"} ${loc} ${oppName} ${score}`);
+    const resultChar = won ? "W" : draw ? "D" : "L";
+    results.push(resultChar);
+    details.push(`${resultChar} ${loc} ${oppName} ${score}`);
   }
 
   if (results.length > 0) {
@@ -190,7 +273,8 @@ async function getRecentForm(
     }
   }
 
-  const streak = streakCount > 0 ? `${streakCount}${streakType === "W" ? "-game win" : "-game losing"} streak` : "";
+  const streakLabel = streakType === "W" ? "-game win" : streakType === "D" ? "-game draw" : "-game losing";
+  const streak = streakCount > 0 ? `${streakCount}${streakLabel} streak` : "";
 
   let restDays: number | null = null;
   const allCompleted = events.filter((e: any) => e.competitions?.[0]?.status?.type?.completed);
@@ -414,7 +498,7 @@ async function getHeadToHead(
   }
 }
 
-function computePowerRating(stats: Omit<TeamStats, "last5" | "last5Detail" | "last10" | "last10Detail" | "restDays" | "keyInjuries" | "streak" | "standingsSummary" | "conferenceRank" | "divisionRecord" | "conferenceRecord" | "overallRank" | "offensiveRank" | "defensiveRank" | "teamStats" | "powerRating" | "elo">): number {
+function computePowerRating(stats: { winPct: number; pointDiff: number; gamesPlayed: number; avgPointsFor: number; avgPointsAgainst: number }): number {
   const winComponent = stats.winPct * 40;
   const diffComponent = Math.max(-20, Math.min(20, stats.pointDiff / (stats.gamesPlayed || 1) * 3));
   const scoringComponent = Math.max(-10, Math.min(10, (stats.avgPointsFor - stats.avgPointsAgainst) * 0.5));
@@ -467,12 +551,11 @@ export async function fetchMatchupStats(
     (homeId && awayId) ? getHeadToHead(sport, league, homeId, awayId, homeTeam, awayTeam).catch(() => null) : Promise.resolve(null),
   ]);
 
-  type BaseRecord = Omit<TeamStats, "last5" | "last5Detail" | "last10" | "last10Detail" | "restDays" | "keyInjuries" | "streak" | "standingsSummary" | "conferenceRank" | "divisionRecord" | "conferenceRecord" | "overallRank" | "offensiveRank" | "defensiveRank" | "teamStats" | "powerRating" | "elo">;
   type FormResult = { last5: string; last5Detail: string[]; last10: string; last10Detail: string[]; restDays: number | null; streak: string };
   type InjuryResult = { name: string; position: string; status: string }[];
 
   const buildStats = (
-    base: BaseRecord | null,
+    base: Awaited<ReturnType<typeof getTeamRecord>> | null,
     form: FormResult | null,
     injuries: InjuryResult | null,
     standings: Awaited<ReturnType<typeof getStandings>> | null,
@@ -483,23 +566,24 @@ export async function fetchMatchupStats(
     const elo = computeElo(base.wins, base.losses, base.avgPointsFor, base.avgPointsAgainst);
     return {
       ...base,
-      last5: form?.last5 ?? "",
+      last5: form?.last5 ?? base.last10?.split("-").slice(-5).join("-") ?? "",
       last5Detail: form?.last5Detail ?? [],
-      last10: form?.last10 ?? "",
-      last10Detail: form?.last10Detail ?? [],
+      last10: form?.last10 ?? base.last10 ?? "",
+      last10Detail: form?.last10Detail ?? base.last10Detail ?? [],
       restDays: form?.restDays ?? null,
       streak: form?.streak ?? "",
       keyInjuries: injuries ?? [],
-      standingsSummary: standings?.standingsSummary ?? null,
-      conferenceRank: standings?.conferenceRank ?? null,
-      divisionRecord: standings?.divisionRecord ?? null,
-      conferenceRecord: standings?.conferenceRecord ?? null,
-      overallRank: standings?.overallRank ?? null,
-      offensiveRank: stats?.offensiveRank ?? null,
-      defensiveRank: stats?.defensiveRank ?? null,
-      teamStats: stats?.teamStats ?? null,
+      standingsSummary: standings?.standingsSummary ?? base.standingsSummary,
+      conferenceRank: standings?.conferenceRank ?? base.conferenceRank,
+      divisionRecord: standings?.divisionRecord ?? base.divisionRecord,
+      conferenceRecord: standings?.conferenceRecord ?? base.conferenceRecord,
+      overallRank: standings?.overallRank ?? base.overallRank,
+      offensiveRank: stats?.offensiveRank ?? base.offensiveRank,
+      defensiveRank: stats?.defensiveRank ?? base.defensiveRank,
+      teamStats: stats?.teamStats ?? base.teamStats,
       powerRating: pr,
       elo,
+      leaguePoints: base.leaguePoints,
     };
   };
 
@@ -511,9 +595,11 @@ export async function fetchMatchupStats(
     const avgPF = (homeResult.avgPointsFor + awayResult.avgPointsAgainst) / 2;
     const avgPA = (awayResult.avgPointsFor + homeResult.avgPointsAgainst) / 2;
     const homeAdv = 1.5;
+    const isSoccer = sportKey.startsWith("soccer");
+    const adj = isSoccer ? 0.3 : 1.5;
     projectedScore = {
-      home: Math.round((avgPF + homeAdv) * 10) / 10,
-      away: Math.round((avgPA - homeAdv) * 10) / 10,
+      home: Math.max(0, Math.round((avgPF + adj) * 10) / 10),
+      away: Math.max(0, Math.round((avgPA - adj) * 10) / 10),
     };
   }
 
@@ -532,7 +618,9 @@ export function buildTeamStatsSection(stats: MatchupStats, homeTeam: string, awa
     if (!t) return [`${label}: Data unavailable`];
     const out: string[] = [];
     out.push(`${label} (${isHome ? "HOME" : "AWAY"}):`);
-    out.push(`  Record: ${t.wins}-${t.losses} (${(t.winPct * 100).toFixed(1)}% win rate) | Home: ${t.homeRecord} | Away: ${t.awayRecord}`);
+    const recStr = t.draws > 0 ? `${t.wins}-${t.draws}-${t.losses}` : `${t.wins}-${t.losses}`;
+    const ptsStr = t.leaguePoints ? ` | ${t.leaguePoints} pts` : "";
+    out.push(`  Record: ${recStr} (${(t.winPct * 100).toFixed(1)}% win rate${ptsStr}) | Home: ${t.homeRecord} | Away: ${t.awayRecord}`);
     if (t.standingsSummary) out.push(`  Standings: ${t.standingsSummary}`);
     if (t.divisionRecord) out.push(`  Division Record: ${t.divisionRecord}`);
     if (t.conferenceRecord) out.push(`  Conference Record: ${t.conferenceRecord}`);
