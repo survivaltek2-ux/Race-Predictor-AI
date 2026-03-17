@@ -62,17 +62,19 @@ router.get("/sports/events", async (req, res) => {
       `/sports/${oddsApiSport}/odds?regions=us&markets=h2h,spreads,totals&oddsFormat=american`
     );
     
-    // Transform event response to include sport title
-    const eventsWithSportTitle = (events.events || []).map((e: any) => ({
+    const eventsArray = Array.isArray(events) ? events : (events.events || []);
+    const sportTitle = {
+      nfl: "NFL",
+      nba: "NBA",
+      mlb: "MLB",
+      nhl: "NHL",
+      ncaaf: "College Football",
+      ncaab: "College Basketball",
+    }[sport] || sport.toUpperCase();
+
+    const eventsWithSportTitle = eventsArray.map((e: any) => ({
       ...e,
-      sport_title: {
-        nfl: "NFL",
-        nba: "NBA",
-        mlb: "MLB",
-        nhl: "NHL",
-        ncaaf: "College Football",
-        ncaab: "College Basketball",
-      }[sport] || sport.toUpperCase(),
+      sport_title: e.sport_title || sportTitle,
     }));
 
     res.json({ events: eventsWithSportTitle });
