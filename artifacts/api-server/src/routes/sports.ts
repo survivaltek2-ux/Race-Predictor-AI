@@ -677,6 +677,21 @@ router.post("/sports/predictions/:id/feedback", async (req, res) => {
   }
 });
 
+router.post("/sports/predictions/auto-resolve", async (_req, res) => {
+  try {
+    const { autoResolveSportsPredictions } = await import("../utils/autoResolve");
+    const result = await autoResolveSportsPredictions();
+    console.log(`[AutoResolve] Checked ${result.checked}, resolved ${result.resolved} (${result.correct} correct, ${result.incorrect} incorrect, ${result.draws} draws)`);
+    if (result.details.length > 0) {
+      result.details.forEach((d) => console.log(`  [AutoResolve] ${d}`));
+    }
+    res.json(result);
+  } catch (err) {
+    console.error("[AutoResolve] Error:", err);
+    res.status(500).json({ error: "Auto-resolve failed" });
+  }
+});
+
 router.get("/sports/predictions/stats", async (req, res) => {
   try {
     const sportKey = req.query.sport as string | undefined;

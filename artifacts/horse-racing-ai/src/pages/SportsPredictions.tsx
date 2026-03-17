@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button, Progress } from "@/components/ui";
 import { format } from "date-fns";
 import { Link } from "wouter";
-import { BrainCircuit, CheckCircle2, XCircle, ArrowRight, ClipboardCheck, MessageSquare, ThumbsUp, ThumbsDown, BarChart3, TrendingUp, Target } from "lucide-react";
+import { BrainCircuit, CheckCircle2, XCircle, ArrowRight, ClipboardCheck, MessageSquare, ThumbsUp, ThumbsDown, BarChart3, TrendingUp, Target, RefreshCw, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -14,10 +14,10 @@ function SportResultRecorder({ predId, onDone }: { predId: number; onDone: () =>
 
   const mutation = useMutation({
     mutationFn: async ({ wasCorrect, winner }: { wasCorrect: boolean; winner?: string }) => {
-      const res = await fetch(`${BASE}/api/sports-predictions/${predId}/result`, {
+      const res = await fetch(`${BASE}/api/sports/predictions/${predId}/result`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wasCorrect, actualWinnerTeam: winner }),
+        body: JSON.stringify({ wasCorrect, actualWinner: winner }),
       });
       if (!res.ok) throw new Error("Failed to record result");
       return res.json();
@@ -80,7 +80,7 @@ function AITrainingFeedback({ predId, onTrain }: { predId: number; onTrain: () =
 
   const trainMutation = useMutation({
     mutationFn: async (comment: string) => {
-      const res = await fetch(`${BASE}/api/sports-predictions/${predId}/feedback`, {
+      const res = await fetch(`${BASE}/api/sports/predictions/${predId}/feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedback: comment, type: "training" }),
@@ -97,7 +97,7 @@ function AITrainingFeedback({ predId, onTrain }: { predId: number; onTrain: () =
 
   const likeMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`${BASE}/api/sports-predictions/${predId}/feedback`, {
+      const res = await fetch(`${BASE}/api/sports/predictions/${predId}/feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedback: "Prediction was helpful", type: "positive" }),
@@ -171,7 +171,7 @@ export default function SportsPredictions() {
   const { data, isLoading } = useQuery({
     queryKey: ["sports-predictions", sport],
     queryFn: async () => {
-      const res = await fetch(`${BASE}/api/sports-predictions?sport=${sport}`);
+      const res = await fetch(`${BASE}/api/sports/predictions?sport=${sport}`);
       if (!res.ok) throw new Error("Failed to fetch predictions");
       return res.json();
     },
@@ -180,7 +180,7 @@ export default function SportsPredictions() {
   const { data: statsData } = useQuery({
     queryKey: ["sports-stats", sport],
     queryFn: async () => {
-      const res = await fetch(`${BASE}/api/sports-predictions/stats?sport=${sport}`);
+      const res = await fetch(`${BASE}/api/sports/predictions/stats?sport=${sport}`);
       if (!res.ok) throw new Error("Failed to fetch stats");
       return res.json();
     },
@@ -198,6 +198,20 @@ export default function SportsPredictions() {
   const predictions = data?.predictions ?? [];
   const stats = statsData ?? {};
 
+  const autoResolveMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`${BASE}/api/sports/predictions/auto-resolve`, { method: "POST" });
+      if (!res.ok) throw new Error("Auto-resolve failed");
+      return res.json();
+    },
+    onSuccess: (result) => {
+      refresh();
+      if (result.resolved > 0) {
+        console.log(`Auto-resolved ${result.resolved} predictions`);
+      }
+    },
+  });
+
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["sports-predictions", sport] });
     queryClient.invalidateQueries({ queryKey: ["sports-stats", sport] });
@@ -209,16 +223,54 @@ export default function SportsPredictions() {
     { key: "nba", label: "NBA" },
     { key: "mlb", label: "MLB" },
     { key: "nhl", label: "NHL" },
-    { key: "ncaaf", label: "College Football" },
-    { key: "ncaab", label: "College Basketball" },
+    { key: "ncaaf", label: "NCAAF" },
+    { key: "ncaab", label: "NCAAB" },
+    { key: "soccer_epl", label: "EPL" },
+    { key: "soccer_spain_la_liga", label: "La Liga" },
+    { key: "soccer_germany_bundesliga", label: "Bundesliga" },
+    { key: "soccer_italy_serie_a", label: "Serie A" },
+    { key: "soccer_france_ligue_one", label: "Ligue 1" },
+    { key: "soccer_usa_mls", label: "MLS" },
+    { key: "soccer_mexico_ligamx", label: "Liga MX" },
+    { key: "soccer_uefa_champs_league", label: "UCL" },
+    { key: "mma_mixed_martial_arts", label: "MMA" },
+    { key: "boxing_boxing", label: "Boxing" },
   ];
 
   return (
     <div className="p-6 md:p-10 max-w-6xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-4xl font-display font-bold text-white mb-2">Sports AI Predictions</h1>
-        <p className="text-muted-foreground">Review all AI picks across the major sports and provide feedback to improve future predictions.</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-4xl font-display font-bold text-white mb-2">Sports AI Predictions</h1>
+          <p className="text-muted-foreground">Review all AI picks and track accuracy. Results sync automatically every 30 minutes.</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0 border-primary/40 text-primary hover:bg-primary/10"
+          disabled={autoResolveMutation.isPending}
+          onClick={() => autoResolveMutation.mutate()}
+        >
+          <Zap className={cn("w-4 h-4 mr-1.5", autoResolveMutation.isPending && "animate-spin")} />
+          {autoResolveMutation.isPending ? "Syncing..." : "Sync Results"}
+        </Button>
       </div>
+      {autoResolveMutation.isSuccess && autoResolveMutation.data && (
+        <div className={cn(
+          "rounded-xl p-3 border text-sm flex items-center gap-2",
+          autoResolveMutation.data.resolved > 0
+            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+            : "bg-slate-500/10 border-slate-500/20 text-muted-foreground"
+        )}>
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          {autoResolveMutation.data.resolved > 0
+            ? `Resolved ${autoResolveMutation.data.resolved} predictions: ${autoResolveMutation.data.correct} correct, ${autoResolveMutation.data.incorrect} incorrect${autoResolveMutation.data.draws > 0 ? `, ${autoResolveMutation.data.draws} draws` : ""}`
+            : autoResolveMutation.data.checked > 0
+              ? `${autoResolveMutation.data.checked} pending predictions — games may still be in progress`
+              : "No pending predictions to resolve"
+          }
+        </div>
+      )}
 
       {/* Stats Summary */}
       {Object.keys(stats).length > 0 && (

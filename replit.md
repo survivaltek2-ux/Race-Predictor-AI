@@ -151,6 +151,7 @@ Prediction modes: hybrid (ML+AI), ml (pure ML), ai (GPT-5.2 only), ml-fallback (
 - **The Odds API**: `ODDS_API_KEY` env var; sport key mapping in `SPORT_KEY_MAP`
 - **ESPN API**: public, no auth; fetches team records, recent form (last 10 games), injuries, standings, offensive/defensive ranks, power ratings, Elo, and multi-season head-to-head (last 3 seasons) via `teamStats.ts`
 - **AI Prediction Pipeline**: All ESPN data (Power Rating, Elo, H2H dominance, projected score, form, rest, injuries) is fed into GPT-5.2 prompt with a structured 10-step analysis hierarchy. AI returns `edgeBreakdown` (power/elo/form/h2h/projected edges), `confidenceFactors`, and `keyFactors` referencing specific metrics. Projected score is compared against O/U and spread lines to detect betting signals. Soccer draws reduce confidence. Edge analysis handles ties (EVEN labeling for <10 Elo or <3 Power diff).
+- **Auto-Resolve**: `autoResolveSportsPredictions()` in `utils/autoResolve.ts` fetches completed game scores from The Odds API `/scores` endpoint, matches them against pending predictions by event ID, determines winners (handles draws for soccer), and updates `wasCorrect`/`actualWinner` in the DB. Runs on startup + every 30 minutes via `setInterval`. Manual trigger: `POST /api/sports/predictions/auto-resolve`. Uses 3-hour buffer after commence time to avoid checking games still in progress. Results feed back into AI prompt historical accuracy section for self-training.
 - **Weather**: Open-Meteo, no key
 
 ### `scripts` (`@workspace/scripts`)

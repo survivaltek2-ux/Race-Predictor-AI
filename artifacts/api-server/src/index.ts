@@ -1,5 +1,6 @@
 import app from "./app";
 import { syncLotteryData, autoComparePredictions } from "./lib/lotterySync";
+import { autoResolveSportsPredictions } from "./utils/autoResolve";
 import { db, lotteryGames } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
@@ -51,10 +52,32 @@ app.listen(port, () => {
       if (compareResult.compared > 0) {
         console.log(`[AutoCompare] Compared ${compareResult.compared} predictions, ${compareResult.matched} correct`);
       }
+
+      console.log("[AutoResolve] Checking sports predictions on startup...");
+      const resolveResult = await autoResolveSportsPredictions();
+      if (resolveResult.resolved > 0) {
+        console.log(`[AutoResolve] Resolved ${resolveResult.resolved} predictions (${resolveResult.correct} correct, ${resolveResult.incorrect} incorrect, ${resolveResult.draws} draws)`);
+        resolveResult.details.forEach((d) => console.log(`  [AutoResolve] ${d}`));
+      } else if (resolveResult.checked > 0) {
+        console.log(`[AutoResolve] ${resolveResult.checked} pending predictions, none resolved yet (games may still be in progress)`);
+      }
     } catch (err) {
       console.error("[LotterySync] Auto-sync failed:", err);
     }
   }, 3000);
+
+  const THIRTY_MIN = 30 * 60 * 1000;
+  setInterval(async () => {
+    try {
+      const resolveResult = await autoResolveSportsPredictions();
+      if (resolveResult.resolved > 0) {
+        console.log(`[AutoResolve] Resolved ${resolveResult.resolved} predictions (${resolveResult.correct}✓ ${resolveResult.incorrect}✗ ${resolveResult.draws}D)`);
+        resolveResult.details.forEach((d) => console.log(`  [AutoResolve] ${d}`));
+      }
+    } catch (err) {
+      console.error("[AutoResolve] Scheduled resolve failed:", err);
+    }
+  }, THIRTY_MIN);
 
   const SIX_HOURS = 6 * 60 * 60 * 1000;
   setInterval(async () => {
