@@ -149,7 +149,7 @@ Prediction modes: hybrid (ML+AI), ml (pure ML), ai (GPT-5.2 only), ml-fallback (
 - **framer-motion**: MUST NOT be used — causes "Illegal constructor" crashes; use CSS transitions only
 - **AI Integration**: Replit OpenAI proxy (gpt-5.2), no user API key needed
 - **The Odds API**: `ODDS_API_KEY` env var; sport key mapping in `SPORT_KEY_MAP`
-- **ESPN API**: public, no auth
+- **ESPN API**: public, no auth; fetches team records, recent form (last 10 games), injuries, standings, offensive/defensive ranks, power ratings, Elo, and multi-season head-to-head (last 3 seasons) via `teamStats.ts`
 - **Weather**: Open-Meteo, no key
 
 ### `scripts` (`@workspace/scripts`)
