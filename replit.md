@@ -106,6 +106,20 @@ Key pages: `src/pages/Lottery.tsx`, `src/pages/SportEvents.tsx`, `src/pages/Spor
 
 Tables: tracks, horses, races, race_entries, predictions, sports_events, sports_predictions, lottery_games, lottery_results, lottery_predictions
 
+### Lottery Data Sync (`artifacts/api-server/src/lib/lotterySync.ts`)
+
+Pulls real historical lottery results from the **NY Open Data API** (free, no API key):
+- **Powerball**: `data.ny.gov/resource/d6yy-54nr.json` (since 2010)
+- **Mega Millions**: `data.ny.gov/resource/5xaw-6ayf.json` (since 2002)
+
+Features:
+- Auto-syncs on server startup (3s delay)
+- Incremental sync — only fetches draws newer than the latest in DB
+- Pagination — fetches up to 5,000 records per game (5 pages x 1,000)
+- Manual sync via `POST /api/lottery/sync`
+- Data status via `GET /api/lottery/data-status`
+- Recent results via `GET /api/lottery/results?gameKey=powerball&limit=10`
+
 ### ML Engine (`artifacts/api-server/src/lib/lotteryML.ts`)
 
 6-algorithm ML ensemble for lottery predictions:

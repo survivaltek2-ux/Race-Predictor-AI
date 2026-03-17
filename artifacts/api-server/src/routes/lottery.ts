@@ -3,6 +3,7 @@ import { db, lotteryGames, lotteryResults, lotteryPredictions } from "@workspace
 import { eq, desc } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { runMLEnsemble, parseDrawResults } from "../lib/lotteryML";
+import { syncLotteryData, getLotteryDataStatus } from "../lib/lotterySync";
 
 const router: IRouter = Router();
 
@@ -292,6 +293,60 @@ router.get("/lottery/stats", async (req, res) => {
   } catch (err) {
     console.error("Error fetching lottery stats:", err);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/lottery/sync", async (req, res) => {
+  try {
+    const gameKey = req.body?.gameKey as string | undefined;
+    console.log(`[LotterySync] Manual sync triggered${gameKey ? ` for ${gameKey}` : " for all games"}`);
+    const results = await syncLotteryData(gameKey);
+    res.json({ success: true, results });
+  } catch (err) {
+    console.error("Error syncing lottery data:", err);
+    res.status(500).json({ error: "Failed to sync lottery data" });
+  }
+});
+
+router.get("/lottery/data-status", async (_req, res) => {
+  try {
+    const status = await getLotteryDataStatus();
+    res.json({ status });
+  } catch (err) {
+    console.error("Error fetching lottery data status:", err);
+    res.status(500).json({ error: "Failed to fetch data status" });
+  }
+});
+
+router.get("/lottery/results", async (req, res) => {
+  try {
+    const gameKey = req.query.gameKey as string | undefined;
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+
+    if (!gameKey) return res.status(400).json({ error: "gameKey is required" });
+
+    const [game] = await db.select().from(lotteryGames).where(eq(lotteryGames.gameKey, gameKey));
+    if (!game) return res.status(404).json({ error: "Game not found" });
+
+    const results = await db
+      .select()
+      .from(lotteryResults)
+      .where(eq(lotteryResults.gameId, game.id))
+      .orderBy(desc(lotteryResults.drawDate))
+      .limit(limit);
+
+    res.json({
+      results: results.map((r) => ({
+        id: r.id,
+        drawDate: r.drawDate,
+        winningNumbers: r.winningNumbers.split(",").map(Number),
+        bonusNumber: r.bonusNumber,
+        jackpot: r.jackpot,
+      })),
+    });
+  } catch (err) {
+    console.error("Error fetching lottery results:", err);
+    res.status(500).json({ error: "Failed to fetch results" });
   }
 });
 

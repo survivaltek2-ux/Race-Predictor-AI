@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button, Progress } from "@/components/ui";
 import { format } from "date-fns";
-import { BrainCircuit, Dices, ClipboardCheck, CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronUp, Cpu, Sparkles, Zap } from "lucide-react";
+import { BrainCircuit, Dices, ClipboardCheck, CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronUp, Cpu, Sparkles, Zap, RefreshCw, Database, Calendar, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -53,9 +53,48 @@ export function Lottery() {
     enabled: !!selectedGame,
   });
 
+  const { data: dataStatusRes } = useQuery({
+    queryKey: ["lottery-data-status"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/lottery/data-status`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  const { data: recentResultsData } = useQuery({
+    queryKey: ["lottery-results", selectedGame],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/lottery/results?gameKey=${selectedGame}&limit=10`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: !!selectedGame,
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`${BASE}/api/lottery/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error("Sync failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["lottery-data-status"] });
+      queryClient.invalidateQueries({ queryKey: ["lottery-results"] });
+      queryClient.invalidateQueries({ queryKey: ["lottery-stats"] });
+    },
+  });
+
   const predictions = predictionsData?.predictions ?? [];
   const stats = statsData ?? {};
   const gameInfo = games.find((g: any) => g.gameKey === selectedGame);
+  const dataStatus: any[] = dataStatusRes?.status ?? [];
+  const currentGameStatus = dataStatus.find((s: any) => s.gameKey === selectedGame);
+  const recentResults: any[] = recentResultsData?.results ?? [];
 
   const generateMutation = useMutation({
     mutationFn: async () => {
@@ -139,6 +178,87 @@ export function Lottery() {
           </Button>
         ))}
       </div>
+
+      <Card className="border-blue-500/30 bg-blue-500/5">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Database className="w-5 h-5 text-blue-400" />
+              <h3 className="text-sm font-bold text-white">Live Data Feed</h3>
+              <Badge variant="secondary" className="text-[10px]">NY Open Data API</Badge>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs border-blue-500/40 text-blue-400 hover:bg-blue-500/10"
+              onClick={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending}
+            >
+              <RefreshCw className={cn("w-3 h-3 mr-1", syncMutation.isPending && "animate-spin")} />
+              {syncMutation.isPending ? "Syncing..." : "Sync Now"}
+            </Button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {dataStatus.map((s: any) => (
+              <div key={s.gameKey} className={cn(
+                "p-3 rounded-lg border transition-all",
+                s.gameKey === selectedGame ? "border-blue-500/40 bg-blue-500/10" : "border-border/30 bg-card/30"
+              )}>
+                <div className="text-xs font-semibold text-white mb-1">{s.gameName}</div>
+                <div className="text-xl font-bold text-blue-400">{s.totalResults.toLocaleString()}</div>
+                <div className="text-[10px] text-muted-foreground">historical draws</div>
+                {s.latestDraw && (
+                  <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
+                    <Calendar className="w-2.5 h-2.5" />
+                    Latest: {format(new Date(s.latestDraw), "MMM d, yyyy")}
+                  </div>
+                )}
+              </div>
+            ))}
+            {dataStatus.length === 0 && (
+              <div className="col-span-4 text-center text-sm text-muted-foreground py-2">
+                Loading data status...
+              </div>
+            )}
+          </div>
+          {syncMutation.isSuccess && (
+            <div className="mt-2 text-xs text-emerald-400 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" /> Data synced successfully
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {recentResults.length > 0 && (
+        <Card className="border-border/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2 text-muted-foreground">
+              <TrendingUp className="w-4 h-4" /> Recent {gameInfo?.name} Winning Numbers
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            <div className="space-y-2">
+              {recentResults.slice(0, 5).map((r: any, idx: number) => (
+                <div key={idx} className="flex items-center gap-3 py-1.5 border-b border-border/20 last:border-0">
+                  <span className="text-xs text-muted-foreground w-24 shrink-0">
+                    {format(new Date(r.drawDate), "MMM d, yyyy")}
+                  </span>
+                  <div className="flex gap-1.5">
+                    {r.winningNumbers.map((num: number, i: number) => (
+                      <span key={i} className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-white/10 text-white font-bold text-xs">
+                        {num}
+                      </span>
+                    ))}
+                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-500/20 text-amber-400 font-bold text-xs ml-1">
+                      {r.bonusNumber}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="border-primary/30 bg-primary/5">
         <CardContent className="p-6 space-y-4">

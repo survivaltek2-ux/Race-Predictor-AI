@@ -1,4 +1,5 @@
 import app from "./app";
+import { syncLotteryData } from "./lib/lotterySync";
 
 const rawPort = process.env["PORT"];
 
@@ -16,4 +17,20 @@ if (Number.isNaN(port) || port <= 0) {
 
 app.listen(port, () => {
   console.log(`Server listening on port ${port}`);
+
+  setTimeout(async () => {
+    try {
+      console.log("[LotterySync] Auto-syncing lottery data on startup...");
+      const results = await syncLotteryData();
+      results.forEach((r) => {
+        if (r.error) {
+          console.error(`[LotterySync] ${r.gameName}: ERROR - ${r.error}`);
+        } else {
+          console.log(`[LotterySync] ${r.gameName}: ${r.inserted} new draws added (${r.totalInDb} total)`);
+        }
+      });
+    } catch (err) {
+      console.error("[LotterySync] Auto-sync failed:", err);
+    }
+  }, 3000);
 });
