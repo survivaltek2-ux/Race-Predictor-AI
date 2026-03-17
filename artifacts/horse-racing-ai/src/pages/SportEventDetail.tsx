@@ -329,10 +329,13 @@ export function SportEventDetail() {
                     { team: matchupStats.home, label: event.home_team, isHome: true },
                   ].map(({ team, label, isHome }) => team && (
                     <div key={label} className="p-5 space-y-4">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {isHome ? <ShieldCheck className="w-4 h-4 text-emerald-400" /> : <ShieldAlert className="w-4 h-4 text-slate-400" />}
                         <h3 className="font-bold text-white text-lg">{label}</h3>
                         <Badge variant={isHome ? "default" : "secondary"} className="text-[10px]">{isHome ? "HOME" : "AWAY"}</Badge>
+                        {team.standingsSummary && (
+                          <Badge variant="outline" className="text-[10px] text-violet-400 border-violet-500/30">{team.standingsSummary}</Badge>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-2 gap-3">
@@ -352,6 +355,23 @@ export function SportEventDetail() {
                         </div>
                       </div>
 
+                      <div className="grid grid-cols-2 gap-3">
+                        {team.powerRating != null && (
+                          <div className="bg-secondary/30 rounded-lg p-3 text-center">
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Power Rating</p>
+                            <p className={cn("text-xl font-bold font-mono", team.powerRating >= 70 ? "text-emerald-400" : team.powerRating >= 50 ? "text-amber-400" : "text-red-400")}>{team.powerRating}</p>
+                            <p className="text-xs text-muted-foreground">/ 100</p>
+                          </div>
+                        )}
+                        {team.elo != null && (
+                          <div className="bg-secondary/30 rounded-lg p-3 text-center">
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Elo Rating</p>
+                            <p className={cn("text-xl font-bold font-mono", team.elo >= 1600 ? "text-emerald-400" : team.elo >= 1450 ? "text-amber-400" : "text-red-400")}>{team.elo}</p>
+                            <p className="text-xs text-muted-foreground">{team.elo >= 1600 ? "Strong" : team.elo >= 1450 ? "Average" : "Weak"}</p>
+                          </div>
+                        )}
+                      </div>
+
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between text-muted-foreground">
                           <span>Home Record</span>
@@ -361,6 +381,40 @@ export function SportEventDetail() {
                           <span>Away Record</span>
                           <span className="font-mono text-white">{team.awayRecord}</span>
                         </div>
+                        {team.divisionRecord && (
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Division</span>
+                            <span className="font-mono text-white">{team.divisionRecord}</span>
+                          </div>
+                        )}
+                        {team.conferenceRecord && (
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Conference</span>
+                            <span className="font-mono text-white">{team.conferenceRecord}</span>
+                          </div>
+                        )}
+                        {team.offensiveRank != null && (
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Offensive Rank</span>
+                            <span className={cn("font-mono font-semibold", team.offensiveRank <= 10 ? "text-emerald-400" : "text-white")}>#{team.offensiveRank}</span>
+                          </div>
+                        )}
+                        {team.defensiveRank != null && (
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Defensive Rank</span>
+                            <span className={cn("font-mono font-semibold", team.defensiveRank <= 10 ? "text-emerald-400" : "text-white")}>#{team.defensiveRank}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Point Diff</span>
+                          <span className={cn("font-mono font-semibold", team.pointDiff >= 0 ? "text-emerald-400" : "text-red-400")}>{team.pointDiff >= 0 ? "+" : ""}{team.pointDiff.toFixed(0)}</span>
+                        </div>
+                        {team.last10 && (
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Last 10</span>
+                            <span className="font-mono text-white">{team.last10}</span>
+                          </div>
+                        )}
                         {team.last5 && (
                           <div className="flex justify-between text-muted-foreground">
                             <span>Last 5</span>
@@ -383,10 +437,10 @@ export function SportEventDetail() {
                         )}
                       </div>
 
-                      {team.last5Detail?.length > 0 && (
+                      {team.last10Detail?.length > 0 && (
                         <div className="space-y-1">
-                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">Recent Games</p>
-                          {team.last5Detail.map((g: string, i: number) => (
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">Recent Games (Last 10)</p>
+                          {team.last10Detail.map((g: string, i: number) => (
                             <p key={i} className={cn("text-xs font-mono px-2 py-1 rounded", g.startsWith("W") ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400")}>{g}</p>
                           ))}
                         </div>
@@ -395,11 +449,11 @@ export function SportEventDetail() {
                       {team.keyInjuries?.length > 0 && (
                         <div className="space-y-1">
                           <p className="text-[10px] text-amber-400 uppercase tracking-wider font-bold flex items-center gap-1">
-                            <Heart className="w-3 h-3" /> Injury Report
+                            <Heart className="w-3 h-3" /> Injury Report ({team.keyInjuries.length})
                           </p>
                           {team.keyInjuries.map((inj: any, i: number) => (
                             <p key={i} className="text-xs text-muted-foreground flex items-center gap-1">
-                              <span className={cn("inline-block w-1.5 h-1.5 rounded-full", inj.status === "Out" ? "bg-red-500" : "bg-amber-500")} />
+                              <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", inj.status === "Out" ? "bg-red-500" : "bg-amber-500")} />
                               {inj.name} <span className="text-muted-foreground/60">({inj.position})</span>
                               <span className={cn("ml-auto font-semibold", inj.status === "Out" ? "text-red-400" : "text-amber-400")}>{inj.status}</span>
                             </p>
@@ -411,6 +465,78 @@ export function SportEventDetail() {
                 </div>
               </CardContent>
             </Card>
+          )}
+
+          {(matchupStats?.projectedScore || matchupStats?.headToHead) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {matchupStats.projectedScore && (
+                <Card className="bg-card/60 border-indigo-500/20">
+                  <CardContent className="p-5 space-y-3">
+                    <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4" /> Projected Score
+                    </h3>
+                    <div className="flex items-center justify-center gap-6">
+                      <div className="text-center">
+                        <p className="text-xs text-muted-foreground mb-1">{event.home_team}</p>
+                        <p className="text-3xl font-bold font-mono text-white">{matchupStats.projectedScore.home}</p>
+                      </div>
+                      <span className="text-muted-foreground text-lg">—</span>
+                      <div className="text-center">
+                        <p className="text-xs text-muted-foreground mb-1">{event.away_team}</p>
+                        <p className="text-3xl font-bold font-mono text-white">{matchupStats.projectedScore.away}</p>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground text-center">
+                      Projected Total: <span className="text-white font-mono font-bold">{(matchupStats.projectedScore.home + matchupStats.projectedScore.away).toFixed(1)}</span>
+                    </p>
+                    {matchupStats.home && matchupStats.away && (
+                      <div className="flex items-center gap-2 justify-center">
+                        <span className="text-[10px] text-muted-foreground">Power:</span>
+                        <span className={cn("text-xs font-mono font-bold", (matchupStats.home.powerRating ?? 0) > (matchupStats.away.powerRating ?? 0) ? "text-emerald-400" : "text-muted-foreground")}>{event.home_team} {matchupStats.home.powerRating}</span>
+                        <span className="text-[10px] text-muted-foreground">vs</span>
+                        <span className={cn("text-xs font-mono font-bold", (matchupStats.away.powerRating ?? 0) > (matchupStats.home.powerRating ?? 0) ? "text-emerald-400" : "text-muted-foreground")}>{event.away_team} {matchupStats.away.powerRating}</span>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {matchupStats.headToHead && (
+                <Card className="bg-card/60 border-violet-500/20">
+                  <CardContent className="p-5 space-y-3">
+                    <h3 className="text-xs font-bold text-violet-400 uppercase tracking-widest flex items-center gap-2">
+                      <Users className="w-4 h-4" /> Head-to-Head This Season
+                    </h3>
+                    <div className="flex items-center justify-center gap-6">
+                      <div className="text-center">
+                        <p className="text-xs text-muted-foreground mb-1">{event.home_team}</p>
+                        <p className="text-3xl font-bold font-mono text-emerald-400">{matchupStats.headToHead.homeWins}</p>
+                        <p className="text-xs text-muted-foreground">wins</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm text-muted-foreground">{matchupStats.headToHead.meetings} games</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xs text-muted-foreground mb-1">{event.away_team}</p>
+                        <p className="text-3xl font-bold font-mono text-red-400">{matchupStats.headToHead.awayWins}</p>
+                        <p className="text-xs text-muted-foreground">wins</p>
+                      </div>
+                    </div>
+                    {matchupStats.headToHead.games?.length > 0 && (
+                      <div className="space-y-1 mt-2">
+                        {matchupStats.headToHead.games.map((g: any, i: number) => (
+                          <div key={i} className="flex items-center justify-between text-xs px-2 py-1 rounded bg-secondary/20">
+                            <span className="text-muted-foreground">{format(new Date(g.date), "MMM d")}</span>
+                            <span className="font-mono text-white">{g.homeScore}-{g.awayScore}</span>
+                            <span className="text-primary font-semibold">{g.winner}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           )}
 
           {matchupStats?.h2hHistory?.length > 0 && (

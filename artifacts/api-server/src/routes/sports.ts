@@ -310,7 +310,13 @@ router.get("/sports/matchup-stats", async (req, res) => {
       confidence: p.confidenceScore,
     }));
 
-    res.json({ home: stats.home, away: stats.away, h2hHistory });
+    res.json({
+      home: stats.home,
+      away: stats.away,
+      headToHead: stats.headToHead ?? null,
+      projectedScore: stats.projectedScore ?? null,
+      h2hHistory,
+    });
   } catch (err) {
     console.error("Error fetching matchup stats:", err);
     res.status(500).json({ error: "Failed to fetch matchup stats" });
@@ -455,6 +461,10 @@ router.post("/sports/predictions", async (req, res) => {
     const teamStatsSection = buildTeamStatsSection(teamStatsResult, homeTeam, awayTeam);
     const teamStatsGuide = buildTeamStatsAnalysisGuide();
 
+    const eloSection = (teamStatsResult.home?.elo || teamStatsResult.away?.elo)
+      ? `\n═══ POWER RATINGS ═══\n${homeTeam}: Power ${teamStatsResult.home?.powerRating ?? "N/A"}/100, Elo ${teamStatsResult.home?.elo ?? "N/A"}${teamStatsResult.away ? `\n${awayTeam}: Power ${teamStatsResult.away.powerRating ?? "N/A"}/100, Elo ${teamStatsResult.away.elo ?? "N/A"}` : ""}${teamStatsResult.projectedScore ? `\nProjected Score: ${homeTeam} ${teamStatsResult.projectedScore.home} — ${awayTeam} ${teamStatsResult.projectedScore.away} (total: ${(teamStatsResult.projectedScore.home + teamStatsResult.projectedScore.away).toFixed(1)})` : ""}`
+      : "";
+
     // Rest days advantage analysis
     const homeRest = teamStatsResult.home?.restDays;
     const awayRest = teamStatsResult.away?.restDays;
@@ -474,7 +484,7 @@ MATCHUP: ${awayTeam} @ ${homeTeam}
 SPORT: ${sportTitle}
 DATE: ${new Date(commenceTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
 
-${teamStatsSection}${restAdvantageNote}
+${teamStatsSection}${restAdvantageNote}${eloSection}
 
 ${teamStatsGuide}
 
@@ -558,6 +568,8 @@ Respond ONLY with valid JSON (no markdown):
           home: teamStatsResult.home,
           away: teamStatsResult.away,
         },
+        headToHead: teamStatsResult.headToHead ?? null,
+        projectedScore: teamStatsResult.projectedScore ?? null,
       }),
     }).returning();
 

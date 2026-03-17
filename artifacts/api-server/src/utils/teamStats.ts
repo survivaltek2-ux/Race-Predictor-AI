@@ -64,14 +64,35 @@ export interface TeamStats {
   awayRecord: string;
   last5: string;
   last5Detail: string[];
+  last10: string;
+  last10Detail: string[];
   restDays: number | null;
   keyInjuries: { name: string; position: string; status: string }[];
   streak: string;
+  standingsSummary: string | null;
+  conferenceRank: number | null;
+  divisionRecord: string | null;
+  conferenceRecord: string | null;
+  overallRank: number | null;
+  offensiveRank: number | null;
+  defensiveRank: number | null;
+  teamStats: Record<string, number | string> | null;
+  powerRating: number | null;
+  elo: number | null;
+}
+
+export interface HeadToHead {
+  meetings: number;
+  homeWins: number;
+  awayWins: number;
+  games: { date: string; homeScore: string; awayScore: string; winner: string }[];
 }
 
 export interface MatchupStats {
   home: TeamStats | null;
   away: TeamStats | null;
+  headToHead: HeadToHead | null;
+  projectedScore: { home: number; away: number } | null;
   error?: string;
 }
 
@@ -126,15 +147,14 @@ async function getTeamRecord(
 async function getRecentForm(
   sport: string,
   league: string,
-  teamId: string,
-  count = 5
-): Promise<{ last5: string; last5Detail: string[]; restDays: number | null; streak: string }> {
+  teamId: string
+): Promise<{ last5: string; last5Detail: string[]; last10: string; last10Detail: string[]; restDays: number | null; streak: string }> {
   const data = await espnGet(`${ESPN_BASE}/${sport}/${league}/teams/${teamId}/schedule`);
   const events: any[] = data?.events ?? [];
 
   const completed = events
     .filter((e: any) => e.competitions?.[0]?.status?.type?.completed)
-    .slice(-count);
+    .slice(-10);
 
   const results: string[] = [];
   const details: string[] = [];
@@ -171,15 +191,21 @@ async function getRecentForm(
   const streak = streakCount > 0 ? `${streakCount}${streakType === "W" ? "-game win" : "-game losing"} streak` : "";
 
   let restDays: number | null = null;
-  const lastGame = events.filter((e: any) => e.competitions?.[0]?.status?.type?.completed).slice(-1)[0];
+  const allCompleted = events.filter((e: any) => e.competitions?.[0]?.status?.type?.completed);
+  const lastGame = allCompleted.slice(-1)[0];
   if (lastGame) {
     const lastDate = new Date(lastGame.date);
     restDays = Math.floor((Date.now() - lastDate.getTime()) / 86400000);
   }
 
+  const last5Results = results.slice(-5);
+  const last5Details = details.slice(-5);
+
   return {
-    last5: results.join("-"),
-    last5Detail: details,
+    last5: last5Results.join("-"),
+    last5Detail: last5Details,
+    last10: results.join("-"),
+    last10Detail: details,
     restDays,
     streak,
   };
@@ -208,13 +234,176 @@ async function getInjuries(
     }));
 }
 
+async function getStandings(
+  sport: string,
+  league: string,
+  teamId: string
+): Promise<{ standingsSummary: string | null; conferenceRank: number | null; divisionRecord: string | null; conferenceRecord: string | null; overallRank: number | null }> {
+  try {
+    const data = await espnGet(`${ESPN_BASE}/${sport}/${league}/standings`);
+    const groups: any[] = data?.children ?? [];
+
+    for (const group of groups) {
+      const entries: any[] = group?.standings?.entries ?? [];
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        if (String(entry.team?.id) !== String(teamId)) continue;
+
+        const stats = entry.stats ?? [];
+        const getStat = (name: string): string | number => {
+          const s = stats.find((st: any) => st.name === name || st.abbreviation === name);
+          return s?.displayValue ?? s?.value ?? "";
+        };
+
+        const divRec = getStat("vs. Div.") || getStat("divisionWinPercentage") || getStat("divisionRecord");
+        const confRec = getStat("vs. Conf.") || getStat("conferenceWinPercentage") || getStat("conferenceRecord");
+        const groupName = group.name || group.abbreviation || "";
+        const rank = i + 1;
+
+        return {
+          standingsSummary: `${groupName} #${rank}`,
+          conferenceRank: rank,
+          divisionRecord: divRec ? String(divRec) : null,
+          conferenceRecord: confRec ? String(confRec) : null,
+          overallRank: null,
+        };
+      }
+    }
+    return { standingsSummary: null, conferenceRank: null, divisionRecord: null, conferenceRecord: null, overallRank: null };
+  } catch {
+    return { standingsSummary: null, conferenceRank: null, divisionRecord: null, conferenceRecord: null, overallRank: null };
+  }
+}
+
+async function getTeamStatistics(
+  sport: string,
+  league: string,
+  teamId: string
+): Promise<{ offensiveRank: number | null; defensiveRank: number | null; teamStats: Record<string, number | string> | null }> {
+  try {
+    const data = await espnGet(`${ESPN_BASE}/${sport}/${league}/teams/${teamId}/statistics`);
+    const splits: any[] = data?.results?.stats?.categories ?? data?.statistics?.splits?.categories ?? [];
+
+    const statsMap: Record<string, number | string> = {};
+    let offRank: number | null = null;
+    let defRank: number | null = null;
+
+    for (const cat of splits) {
+      const catName = (cat.name || cat.displayName || "").toLowerCase();
+      const statsList: any[] = cat.stats ?? [];
+      for (const s of statsList) {
+        const key = s.name || s.abbreviation;
+        if (!key) continue;
+        statsMap[key] = s.displayValue ?? s.value;
+        if (s.rankDisplayValue) {
+          const rankNum = parseInt(String(s.rankDisplayValue).replace(/\D/g, ""));
+          if (!isNaN(rankNum)) {
+            if (catName.includes("offense") || catName.includes("scoring") || catName.includes("batting")) {
+              if (offRank === null || rankNum < offRank) offRank = rankNum;
+            }
+            if (catName.includes("defense") || catName.includes("pitching") || catName.includes("fielding")) {
+              if (defRank === null || rankNum < defRank) defRank = rankNum;
+            }
+          }
+        }
+      }
+    }
+
+    if (Object.keys(statsMap).length === 0) {
+      const altData = await espnGet(`${ESPN_BASE}/${sport}/${league}/teams/${teamId}`);
+      const records = altData?.team?.record?.items ?? [];
+      for (const rec of records) {
+        for (const s of (rec.stats ?? [])) {
+          if (s.name && s.value != null) statsMap[s.name] = s.displayValue ?? s.value;
+        }
+      }
+    }
+
+    return { offensiveRank: offRank, defensiveRank: defRank, teamStats: Object.keys(statsMap).length > 0 ? statsMap : null };
+  } catch {
+    return { offensiveRank: null, defensiveRank: null, teamStats: null };
+  }
+}
+
+async function getHeadToHead(
+  sport: string,
+  league: string,
+  homeTeamId: string,
+  awayTeamId: string,
+  homeTeamName: string,
+  awayTeamName: string
+): Promise<HeadToHead | null> {
+  try {
+    const data = await espnGet(`${ESPN_BASE}/${sport}/${league}/teams/${homeTeamId}/schedule`);
+    const events: any[] = data?.events ?? [];
+
+    const h2hGames: HeadToHead["games"] = [];
+    let homeWins = 0;
+    let awayWins = 0;
+
+    for (const ev of events) {
+      const comp = ev.competitions?.[0];
+      if (!comp?.status?.type?.completed) continue;
+      const competitors: any[] = comp.competitors ?? [];
+      const home = competitors.find((c: any) => c.homeAway === "home");
+      const away = competitors.find((c: any) => c.homeAway === "away");
+      if (!home || !away) continue;
+
+      const hasOpponent =
+        String(home.team?.id) === String(awayTeamId) ||
+        String(away.team?.id) === String(awayTeamId);
+      if (!hasOpponent) continue;
+
+      const homeScore = typeof home.score === "object" ? home.score?.value ?? home.score?.displayValue ?? "?" : home.score;
+      const awayScore = typeof away.score === "object" ? away.score?.value ?? away.score?.displayValue ?? "?" : away.score;
+      const winner = home.winner ? home.team?.displayName ?? homeTeamName : away.team?.displayName ?? awayTeamName;
+
+      if (String(home.team?.id) === String(homeTeamId) && home.winner) homeWins++;
+      else if (String(away.team?.id) === String(homeTeamId) && away.winner) homeWins++;
+      else awayWins++;
+
+      h2hGames.push({
+        date: ev.date,
+        homeScore: String(homeScore),
+        awayScore: String(awayScore),
+        winner,
+      });
+    }
+
+    if (h2hGames.length === 0) return null;
+
+    return {
+      meetings: h2hGames.length,
+      homeWins,
+      awayWins,
+      games: h2hGames.slice(-5),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function computePowerRating(stats: Omit<TeamStats, "last5" | "last5Detail" | "last10" | "last10Detail" | "restDays" | "keyInjuries" | "streak" | "standingsSummary" | "conferenceRank" | "divisionRecord" | "conferenceRecord" | "overallRank" | "offensiveRank" | "defensiveRank" | "teamStats" | "powerRating" | "elo">): number {
+  const winComponent = stats.winPct * 40;
+  const diffComponent = Math.max(-20, Math.min(20, stats.pointDiff / (stats.gamesPlayed || 1) * 3));
+  const scoringComponent = Math.max(-10, Math.min(10, (stats.avgPointsFor - stats.avgPointsAgainst) * 0.5));
+  return Math.round((winComponent + diffComponent + scoringComponent + 50) * 10) / 10;
+}
+
+function computeElo(wins: number, losses: number, avgPF: number, avgPA: number): number {
+  const base = 1500;
+  const winAdj = (wins - losses) * 15;
+  const marginAdj = (avgPF - avgPA) * 5;
+  return Math.round(base + winAdj + marginAdj);
+}
+
 export async function fetchMatchupStats(
   sportKey: string,
   homeTeam: string,
   awayTeam: string
 ): Promise<MatchupStats> {
   const mapping = SPORT_MAP[sportKey];
-  if (!mapping) return { home: null, away: null, error: `No ESPN mapping for sport: ${sportKey}` };
+  if (!mapping) return { home: null, away: null, headToHead: null, projectedScore: null, error: `No ESPN mapping for sport: ${sportKey}` };
 
   const { sport, league } = mapping;
 
@@ -223,9 +412,9 @@ export async function fetchMatchupStats(
     findTeamId(sport, league, awayTeam),
   ]);
 
-  if (!homeId && !awayId) return { home: null, away: null, error: "Teams not found in ESPN" };
+  if (!homeId && !awayId) return { home: null, away: null, headToHead: null, projectedScore: null, error: "Teams not found in ESPN" };
 
-  const [homeData, awayData] = await Promise.all([
+  const [homeData, awayData, homeStandings, awayStandings, homeTeamStats, awayTeamStats, h2h] = await Promise.all([
     homeId
       ? Promise.all([
           getTeamRecord(sport, league, homeId, homeTeam),
@@ -240,27 +429,68 @@ export async function fetchMatchupStats(
           getInjuries(sport, league, awayId),
         ])
       : Promise.resolve(null),
+    homeId ? getStandings(sport, league, homeId).catch(() => null) : Promise.resolve(null),
+    awayId ? getStandings(sport, league, awayId).catch(() => null) : Promise.resolve(null),
+    homeId ? getTeamStatistics(sport, league, homeId).catch(() => null) : Promise.resolve(null),
+    awayId ? getTeamStatistics(sport, league, awayId).catch(() => null) : Promise.resolve(null),
+    (homeId && awayId) ? getHeadToHead(sport, league, homeId, awayId, homeTeam, awayTeam).catch(() => null) : Promise.resolve(null),
   ]);
 
+  type BaseRecord = Omit<TeamStats, "last5" | "last5Detail" | "last10" | "last10Detail" | "restDays" | "keyInjuries" | "streak" | "standingsSummary" | "conferenceRank" | "divisionRecord" | "conferenceRecord" | "overallRank" | "offensiveRank" | "defensiveRank" | "teamStats" | "powerRating" | "elo">;
+  type FormResult = { last5: string; last5Detail: string[]; last10: string; last10Detail: string[]; restDays: number | null; streak: string };
+  type InjuryResult = { name: string; position: string; status: string }[];
+
   const buildStats = (
-    base: Omit<TeamStats, "last5" | "last5Detail" | "restDays" | "keyInjuries" | "streak"> | null,
-    form: { last5: string; last5Detail: string[]; restDays: number | null; streak: string } | null,
-    injuries: { name: string; position: string; status: string }[] | null
+    base: BaseRecord | null,
+    form: FormResult | null,
+    injuries: InjuryResult | null,
+    standings: Awaited<ReturnType<typeof getStandings>> | null,
+    stats: Awaited<ReturnType<typeof getTeamStatistics>> | null,
   ): TeamStats | null => {
     if (!base) return null;
+    const pr = computePowerRating(base);
+    const elo = computeElo(base.wins, base.losses, base.avgPointsFor, base.avgPointsAgainst);
     return {
       ...base,
       last5: form?.last5 ?? "",
       last5Detail: form?.last5Detail ?? [],
+      last10: form?.last10 ?? "",
+      last10Detail: form?.last10Detail ?? [],
       restDays: form?.restDays ?? null,
       streak: form?.streak ?? "",
       keyInjuries: injuries ?? [],
+      standingsSummary: standings?.standingsSummary ?? null,
+      conferenceRank: standings?.conferenceRank ?? null,
+      divisionRecord: standings?.divisionRecord ?? null,
+      conferenceRecord: standings?.conferenceRecord ?? null,
+      overallRank: standings?.overallRank ?? null,
+      offensiveRank: stats?.offensiveRank ?? null,
+      defensiveRank: stats?.defensiveRank ?? null,
+      teamStats: stats?.teamStats ?? null,
+      powerRating: pr,
+      elo,
     };
   };
 
+  const homeResult = homeData ? buildStats(homeData[0], homeData[1], homeData[2], homeStandings, homeTeamStats) : null;
+  const awayResult = awayData ? buildStats(awayData[0], awayData[1], awayData[2], awayStandings, awayTeamStats) : null;
+
+  let projectedScore: { home: number; away: number } | null = null;
+  if (homeResult && awayResult) {
+    const avgPF = (homeResult.avgPointsFor + awayResult.avgPointsAgainst) / 2;
+    const avgPA = (awayResult.avgPointsFor + homeResult.avgPointsAgainst) / 2;
+    const homeAdv = 1.5;
+    projectedScore = {
+      home: Math.round((avgPF + homeAdv) * 10) / 10,
+      away: Math.round((avgPA - homeAdv) * 10) / 10,
+    };
+  }
+
   return {
-    home: homeData ? buildStats(homeData[0], homeData[1], homeData[2]) : null,
-    away: awayData ? buildStats(awayData[0], awayData[1], awayData[2]) : null,
+    home: homeResult,
+    away: awayResult,
+    headToHead: h2h,
+    projectedScore,
   };
 }
 
@@ -272,8 +502,16 @@ export function buildTeamStatsSection(stats: MatchupStats, homeTeam: string, awa
     const out: string[] = [];
     out.push(`${label} (${isHome ? "HOME" : "AWAY"}):`);
     out.push(`  Record: ${t.wins}-${t.losses} (${(t.winPct * 100).toFixed(1)}% win rate) | Home: ${t.homeRecord} | Away: ${t.awayRecord}`);
+    if (t.standingsSummary) out.push(`  Standings: ${t.standingsSummary}`);
+    if (t.divisionRecord) out.push(`  Division Record: ${t.divisionRecord}`);
+    if (t.conferenceRecord) out.push(`  Conference Record: ${t.conferenceRecord}`);
     out.push(`  Scoring: ${t.avgPointsFor.toFixed(1)} pts/gm scored, ${t.avgPointsAgainst.toFixed(1)} pts/gm allowed (diff: ${t.pointDiff >= 0 ? "+" : ""}${t.pointDiff.toFixed(0)})`);
-    if (t.last5) {
+    if (t.powerRating !== null) out.push(`  Power Rating: ${t.powerRating}/100 | Elo: ${t.elo}`);
+    if (t.offensiveRank !== null) out.push(`  Offensive Rank: #${t.offensiveRank}`);
+    if (t.defensiveRank !== null) out.push(`  Defensive Rank: #${t.defensiveRank}`);
+    if (t.last10) {
+      out.push(`  Last 10 games: ${t.last10} — ${t.last10Detail.join(", ")}`);
+    } else if (t.last5) {
       out.push(`  Last 5 games: ${t.last5} — ${t.last5Detail.join(", ")}`);
     }
     if (t.streak) out.push(`  Streak: ${t.streak}`);
@@ -293,7 +531,20 @@ export function buildTeamStatsSection(stats: MatchupStats, homeTeam: string, awa
   const homeLines = fmtTeam(stats.home, homeTeam, true);
   const awayLines = fmtTeam(stats.away, awayTeam, false);
 
-  return [...lines, ...homeLines, "", ...awayLines].join("\n");
+  const h2hLines: string[] = [];
+  if (stats.headToHead) {
+    h2hLines.push("", `Head-to-Head This Season: ${stats.headToHead.meetings} games — ${homeTeam} ${stats.headToHead.homeWins}W, ${awayTeam} ${stats.headToHead.awayWins}W`);
+    for (const g of stats.headToHead.games) {
+      h2hLines.push(`  ${new Date(g.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}: ${g.homeScore}-${g.awayScore} (${g.winner})`);
+    }
+  }
+
+  const projLines: string[] = [];
+  if (stats.projectedScore) {
+    projLines.push("", `Projected Score (based on team averages + home advantage): ${homeTeam} ${stats.projectedScore.home} — ${awayTeam} ${stats.projectedScore.away}`);
+  }
+
+  return [...lines, ...homeLines, "", ...awayLines, ...h2hLines, ...projLines].join("\n");
 }
 
 export function buildTeamStatsAnalysisGuide(): string {
@@ -303,5 +554,10 @@ export function buildTeamStatsAnalysisGuide(): string {
 • Teams on 3+ game losing streaks often have underlying issues not visible in odds
 • Injury report: "Out" players reduce team ability significantly; "Questionable" adds uncertainty
 • Point differential (scored vs allowed) is a stronger predictor than win-loss record alone
-• A team averaging 10+ more pts/gm than they allow is a strong favourite signal`;
+• A team averaging 10+ more pts/gm than they allow is a strong favourite signal
+• Power Rating combines win%, point differential, and scoring margin into a single 0-100 score
+• Elo rating >1600 = strong team, <1400 = weak team; compare both teams' Elo for matchup edge
+• Head-to-head record shows if one team has a matchup advantage this season
+• Conference/division rank and records indicate strength within their competitive group
+• Projected score helps calibrate over/under and spread bets`;
 }
