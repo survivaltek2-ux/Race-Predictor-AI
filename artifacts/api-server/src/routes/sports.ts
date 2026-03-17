@@ -500,7 +500,7 @@ router.get("/sports/predictions", async (req, res) => {
 
     if (sportKey) rows = rows.filter((r) => r.sportKey === sportKey);
 
-    res.json(rows.map(formatSportsPrediction));
+    res.json({ predictions: rows.map(formatSportsPrediction) });
   } catch (err) {
     console.error("Error fetching sports predictions:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -531,9 +531,32 @@ router.patch("/sports/predictions/:id/result", async (req, res) => {
   }
 });
 
-router.get("/sports/predictions/stats", async (_req, res) => {
+router.post("/sports/predictions/:id/feedback", async (req, res) => {
   try {
-    const all = await db.select().from(sportsPredictionsTable);
+    const id = parseInt(req.params.id);
+    const { feedback, type } = req.body;
+
+    if (!feedback || !type) {
+      return res.status(400).json({ error: "feedback and type are required" });
+    }
+
+    // Log feedback for training purposes (in a real app, this would train the model)
+    console.log(`[AI TRAINING] Prediction ${id}: ${type} - ${feedback}`);
+
+    res.json({ success: true, message: "Feedback received and logged for AI training" });
+  } catch (err) {
+    console.error("Error recording feedback:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/sports/predictions/stats", async (req, res) => {
+  try {
+    const sportKey = req.query.sport as string | undefined;
+    let all = await db.select().from(sportsPredictionsTable);
+    
+    if (sportKey) all = all.filter((p) => p.sportKey === sportKey);
+    
     const total = all.length;
     const withResult = all.filter((p) => p.wasCorrect !== null && p.wasCorrect !== undefined);
     const correct = withResult.filter((p) => p.wasCorrect).length;

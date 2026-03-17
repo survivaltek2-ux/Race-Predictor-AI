@@ -14,6 +14,7 @@ import { RaceDetail } from "@/pages/RaceDetail";
 import { Horses } from "@/pages/Horses";
 import { HorseDetail } from "@/pages/HorseDetail";
 import { Predictions } from "@/pages/Predictions";
+import SportsPredictions from "@/pages/SportsPredictions";
 import { Sports } from "@/pages/Sports";
 import { SportEvents } from "@/pages/SportEvents";
 import { SportEventDetail } from "@/pages/SportEventDetail";
@@ -38,6 +39,7 @@ function Router() {
         <Route path="/horses" component={Horses} />
         <Route path="/horses/:id" component={HorseDetail} />
         <Route path="/predictions" component={Predictions} />
+        <Route path="/sports-predictions" component={SportsPredictions} />
         <Route path="/sports" component={Sports} />
         <Route path="/sports/:sport" component={SportEvents} />
         <Route path="/sports/:sport/events/:eventId" component={SportEventDetail} />

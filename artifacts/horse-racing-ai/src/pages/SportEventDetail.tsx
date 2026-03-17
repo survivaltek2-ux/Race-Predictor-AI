@@ -386,6 +386,15 @@ export function SportEventDetail() {
                       <BrainCircuit className="w-3 h-3 mr-1" /> AI Pick
                     </Badge>
                     <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => generateMutation.mutate()}
+                        disabled={generateMutation.isPending || !isUpcoming}
+                        className="h-8 text-xs"
+                      >
+                        {generateMutation.isPending ? "Analyzing..." : "Rerun"}
+                      </Button>
                       {prediction.weatherData && (
                         <span className="inline-flex items-center gap-1 text-xs bg-sky-500/10 border border-sky-500/20 text-sky-400 rounded-full px-2 py-0.5">
                           <Cloud className="w-3 h-3" />

@@ -35,7 +35,7 @@ export function SportEvents() {
     enabled: !!sport,
   });
 
-  const { data: predictions } = useQuery<any[]>({
+  const { data: predictionsData } = useQuery<{ predictions: any[] }>({
     queryKey: ["sports-predictions", sport],
     queryFn: async () => {
       const res = await fetch(`${BASE}/api/sports/predictions?sport=${sport}`);
@@ -45,7 +45,7 @@ export function SportEvents() {
     staleTime: 60 * 1000,
   });
 
-  const predByEvent = (predictions || []).reduce((acc: Record<string, any>, p: any) => {
+  const predByEvent = (predictionsData?.predictions || []).reduce((acc: Record<string, any>, p: any) => {
     acc[p.externalEventId] = p;
     return acc;
   }, {});
