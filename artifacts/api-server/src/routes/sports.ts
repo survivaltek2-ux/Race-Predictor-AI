@@ -461,9 +461,31 @@ router.post("/sports/predictions", async (req, res) => {
     const teamStatsSection = buildTeamStatsSection(teamStatsResult, homeTeam, awayTeam);
     const teamStatsGuide = buildTeamStatsAnalysisGuide();
 
-    const eloSection = (teamStatsResult.home?.elo || teamStatsResult.away?.elo)
-      ? `\n═══ POWER RATINGS ═══\n${homeTeam}: Power ${teamStatsResult.home?.powerRating ?? "N/A"}/100, Elo ${teamStatsResult.home?.elo ?? "N/A"}${teamStatsResult.away ? `\n${awayTeam}: Power ${teamStatsResult.away.powerRating ?? "N/A"}/100, Elo ${teamStatsResult.away.elo ?? "N/A"}` : ""}${teamStatsResult.projectedScore ? `\nProjected Score: ${homeTeam} ${teamStatsResult.projectedScore.home} — ${awayTeam} ${teamStatsResult.projectedScore.away} (total: ${(teamStatsResult.projectedScore.home + teamStatsResult.projectedScore.away).toFixed(1)})` : ""}`
-      : "";
+    let projectedVsLine = "";
+    if (teamStatsResult.projectedScore) {
+      const projTotal = teamStatsResult.projectedScore.home + teamStatsResult.projectedScore.away;
+      const ouMarket = oddsData?.bookmakers
+        ?.flatMap((b: any) => b.markets ?? [])
+        .find((m: any) => m.key === "totals");
+      const ouLine = ouMarket?.outcomes?.[0]?.point;
+      if (ouLine) {
+        const gap = projTotal - ouLine;
+        if (Math.abs(gap) >= 2) {
+          projectedVsLine = `\n⚡ PROJECTED vs O/U: Projected total ${projTotal.toFixed(1)} vs line ${ouLine} — ${gap > 0 ? "OVER" : "UNDER"} lean (${Math.abs(gap).toFixed(1)} pt gap)`;
+        }
+      }
+      const spreadMarket = oddsData?.bookmakers
+        ?.flatMap((b: any) => b.markets ?? [])
+        .find((m: any) => m.key === "spreads");
+      const homeSpread = spreadMarket?.outcomes?.find((o: any) => o.name === homeTeam)?.point;
+      if (homeSpread != null) {
+        const projMargin = teamStatsResult.projectedScore.home - teamStatsResult.projectedScore.away;
+        const spreadGap = projMargin - (-homeSpread);
+        if (Math.abs(spreadGap) >= 2) {
+          projectedVsLine += `\n⚡ PROJECTED vs SPREAD: Projected margin ${projMargin > 0 ? "+" : ""}${projMargin.toFixed(1)} vs spread ${homeSpread > 0 ? "+" : ""}${homeSpread} — ${spreadGap > 0 ? homeTeam + " covers" : awayTeam + " covers"} lean`;
+        }
+      }
+    }
 
     // Rest days advantage analysis
     const homeRest = teamStatsResult.home?.restDays;
@@ -484,7 +506,7 @@ MATCHUP: ${awayTeam} @ ${homeTeam}
 SPORT: ${sportTitle}
 DATE: ${new Date(commenceTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
 
-${teamStatsSection}${restAdvantageNote}${eloSection}
+${teamStatsSection}${restAdvantageNote}${projectedVsLine}
 
 ${teamStatsGuide}
 
@@ -501,12 +523,17 @@ ${historicalSection}
 Work through this hierarchy — do NOT skip steps:
 
 1. INJURY REPORT first — a key starter listed "Out" is the single strongest signal and can override everything else. Cross-reference injury report with news.
-2. LINE MOVEMENT second — spread movement of 0.5+ pts indicates sharp action; follow it unless step 1 directly contradicts.
-3. TEAM STATS third — point differential, home/away splits, recent form (last 5 games), and rest advantage are strong indicators. A team on a 3+ game losing streak has underlying issues.
-4. MARKET CONSENSUS fourth — if 3+ books agree on a spread, that consensus encodes significant information; only fade it with strong evidence from steps 1-3.
-5. WEATHER fifth — only meaningful for outdoor sports; primarily affects totals and running-game teams.
-6. NEWS sixth — corroborates or conflicts with what the market already knows.
-7. HISTORICAL accuracy last — use this to calibrate confidence UP or DOWN but not to override the pick itself.
+2. MATCHUP EDGE ANALYSIS second — compare Power Ratings, Elo gap, form (last 10), and offensive/defensive mismatches. If both Power and Elo agree on the same favourite with a significant gap, that is a top-tier signal.
+3. HEAD-TO-HEAD RECORD third — if one team dominates H2H (70%+ win rate across 3+ meetings), this is a strong matchup-specific signal that overrides general form.
+4. LINE MOVEMENT fourth — spread movement of 0.5+ pts indicates sharp action; follow it unless steps 1-3 directly contradict.
+5. PROJECTED SCORE vs LINES — compare projected total against O/U line and projected margin against spread. A gap of 3+ points is a strong signal for over/under or cover picks.
+6. TEAM STATS fifth — point differential, home/away splits, recent form (last 10 games), and rest advantage are strong indicators. A team on a 3+ game losing streak has underlying issues.
+7. MARKET CONSENSUS sixth — if 3+ books agree on a spread, that consensus encodes significant information; only fade it with strong evidence from steps 1-5.
+8. WEATHER seventh — only meaningful for outdoor sports; primarily affects totals and running-game teams.
+9. NEWS eighth — corroborates or conflicts with what the market already knows.
+10. HISTORICAL accuracy last — use this to calibrate confidence UP or DOWN but not to override the pick itself.
+
+For SOCCER specifically: factor in draw probability — if both teams have similar Elo/Power and the H2H shows draws, a draw outcome should reduce pick confidence to 0.50-0.60 range.
 
 When ALL sources agree → high confidence (0.75+). When 2+ sources conflict → lower confidence (0.55-0.65) and explain the conflict clearly.
 Your recommendedBet must reference the spread or total, not just the moneyline, where spread/totals data is available.
@@ -515,17 +542,26 @@ Respond ONLY with valid JSON (no markdown):
 {
   "predictedWinner": "Team Name (must be exactly '${homeTeam}' or '${awayTeam}')",
   "confidenceScore": 0.72,
-  "reasoning": "5–7 sentences: open with the most decisive source (injury/line movement/stats), work through how each source confirmed or conflicted, note any rest or home/away advantage, close with confidence calibration",
+  "reasoning": "5–7 sentences: open with the most decisive source (injury/power-elo edge/H2H), work through how matchup edge analysis, H2H dominance, form, line movement, and projected score vs lines confirmed or conflicted, note any rest or home/away advantage, close with confidence calibration",
   "keyFactors": [
-    "STATS: Team A averages 12 more pts/gm than allowed — elite scoring differential",
+    "POWER: Team A Power 82/100 vs Team B 65/100 — 17pt DOMINANT edge",
+    "ELO: Team A Elo 1720 vs Team B 1580 — 140pt SIGNIFICANT gap",
+    "H2H: Team A won 4 of 6 meetings (67%) — clear historical edge",
+    "FORM: Team A 8W-2L last 10 vs Team B 5W-5L — strong form advantage",
+    "PROJECTED: Projected total 47.2 vs O/U 44.5 — OVER lean (2.7 pt gap)",
     "INJURY: Starting QB listed Out — massive impact on passing game",
-    "LINE: Spread moved 1.5pts toward home — sharp money signal",
-    "FORM: Away team on 4-game losing streak with back-to-back fatigue",
-    "WEATHER: 25mph winds expected — hurt passing, favour under"
+    "LINE: Spread moved 1.5pts toward home — sharp money signal"
   ],
   "recommendedBet": "Specific bet including spread or total (e.g. 'KC -3.5 (-110)' or 'Under 47.5 (-105)')",
   "valueSide": "${homeTeam} or ${awayTeam}",
   "newsInsights": ["Specific news impact 1", "Specific news impact 2"],
+  "edgeBreakdown": {
+    "powerEdge": "${homeTeam} or ${awayTeam} — with gap magnitude",
+    "eloEdge": "${homeTeam} or ${awayTeam} — with gap magnitude",
+    "formEdge": "${homeTeam} or ${awayTeam} or even — based on last 10",
+    "h2hEdge": "${homeTeam} or ${awayTeam} or even — from H2H record",
+    "projectedScoreEdge": "which team and by how much"
+  },
   "confidenceFactors": {
     "boosts": ["Factor that increased confidence", "Another boost"],
     "reducers": ["Factor that introduced uncertainty", "Another reducer"]
@@ -560,6 +596,7 @@ Respond ONLY with valid JSON (no markdown):
         valueSide: parsed.valueSide || "",
         newsInsights: parsed.newsInsights || [],
         confidenceFactors: parsed.confidenceFactors || null,
+        edgeBreakdown: parsed.edgeBreakdown || null,
         oddsAtPrediction: oddsData,
         weatherData: weatherResult ?? null,
         lineMovement: lineMovement ?? null,
@@ -723,6 +760,9 @@ function formatSportsPrediction(p: any) {
     valueSide: analysis.valueSide || "",
     newsInsights: analysis.newsInsights || [],
     confidenceFactors: analysis.confidenceFactors ?? null,
+    edgeBreakdown: analysis.edgeBreakdown ?? null,
+    headToHead: analysis.headToHead ?? null,
+    projectedScore: analysis.projectedScore ?? null,
     weatherData: analysis.weatherData ?? null,
     lineMovement: analysis.lineMovement ?? null,
     spreadMovements: analysis.spreadMovements ?? [],

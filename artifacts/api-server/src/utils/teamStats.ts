@@ -618,8 +618,8 @@ export function buildTeamStatsSection(stats: MatchupStats, homeTeam: string, awa
     if (!t) return [`${label}: Data unavailable`];
     const out: string[] = [];
     out.push(`${label} (${isHome ? "HOME" : "AWAY"}):`);
-    const recStr = t.draws > 0 ? `${t.wins}-${t.draws}-${t.losses}` : `${t.wins}-${t.losses}`;
-    const ptsStr = t.leaguePoints ? ` | ${t.leaguePoints} pts` : "";
+    const recStr = t.draws > 0 ? `${t.wins}-${t.draws}-${t.losses} (W-D-L)` : `${t.wins}-${t.losses}`;
+    const ptsStr = t.leaguePoints ? ` | ${t.leaguePoints} league pts` : "";
     out.push(`  Record: ${recStr} (${(t.winPct * 100).toFixed(1)}% win rate${ptsStr}) | Home: ${t.homeRecord} | Away: ${t.awayRecord}`);
     if (t.standingsSummary) out.push(`  Standings: ${t.standingsSummary}`);
     if (t.divisionRecord) out.push(`  Division Record: ${t.divisionRecord}`);
@@ -629,7 +629,12 @@ export function buildTeamStatsSection(stats: MatchupStats, homeTeam: string, awa
     if (t.offensiveRank !== null) out.push(`  Offensive Rank: #${t.offensiveRank}`);
     if (t.defensiveRank !== null) out.push(`  Defensive Rank: #${t.defensiveRank}`);
     if (t.last10) {
-      out.push(`  Last 10 games: ${t.last10} — ${t.last10Detail.join(", ")}`);
+      const l10 = t.last10.split("-");
+      const w10 = l10.filter(r => r === "W").length;
+      const d10 = l10.filter(r => r === "D").length;
+      const l10c = l10.filter(r => r === "L").length;
+      const formStr = d10 > 0 ? `${w10}W-${d10}D-${l10c}L` : `${w10}W-${l10c}L`;
+      out.push(`  Last 10 games: ${t.last10} (${formStr}) — ${t.last10Detail.join(", ")}`);
     } else if (t.last5) {
       out.push(`  Last 5 games: ${t.last5} — ${t.last5Detail.join(", ")}`);
     }
@@ -639,7 +644,7 @@ export function buildTeamStatsSection(stats: MatchupStats, homeTeam: string, awa
       out.push(`  Rest: ${t.restDays} days since last game${restNote}`);
     }
     if (t.keyInjuries.length > 0) {
-      out.push(`  Injury Report:`);
+      out.push(`  Injury Report (${t.keyInjuries.length} players):`);
       t.keyInjuries.forEach((i) => out.push(`    • ${i.name} (${i.position}) — ${i.status}`));
     } else {
       out.push(`  Injury Report: No significant injuries reported`);
@@ -650,38 +655,118 @@ export function buildTeamStatsSection(stats: MatchupStats, homeTeam: string, awa
   const homeLines = fmtTeam(stats.home, homeTeam, true);
   const awayLines = fmtTeam(stats.away, awayTeam, false);
 
+  const edgeLines: string[] = [];
+  if (stats.home && stats.away) {
+    edgeLines.push("", "═══ MATCHUP EDGE ANALYSIS ═══");
+    const eloDiff = (stats.home.elo ?? 1500) - (stats.away.elo ?? 1500);
+    const pwrDiff = (stats.home.powerRating ?? 50) - (stats.away.powerRating ?? 50);
+    if (Math.abs(eloDiff) < 10) {
+      edgeLines.push(`  Elo Edge: EVEN (${Math.abs(eloDiff)} pt difference — no meaningful edge)`);
+    } else {
+      const eloFav = eloDiff > 0 ? homeTeam : awayTeam;
+      edgeLines.push(`  Elo Edge: ${eloFav} by ${Math.abs(eloDiff)} pts (${Math.abs(eloDiff) >= 100 ? "SIGNIFICANT" : Math.abs(eloDiff) >= 50 ? "moderate" : "slight"})`);
+    }
+    if (Math.abs(pwrDiff) < 3) {
+      edgeLines.push(`  Power Edge: EVEN (${Math.abs(pwrDiff).toFixed(1)} pt difference — no meaningful edge)`);
+    } else {
+      const pwrFav = pwrDiff > 0 ? homeTeam : awayTeam;
+      edgeLines.push(`  Power Edge: ${pwrFav} by ${Math.abs(pwrDiff).toFixed(1)} (${Math.abs(pwrDiff) >= 15 ? "DOMINANT" : Math.abs(pwrDiff) >= 8 ? "clear" : "marginal"})`);
+    }
+
+    const homeForm10 = stats.home.last10?.split("-").filter(r => r === "W").length ?? 0;
+    const awayForm10 = stats.away.last10?.split("-").filter(r => r === "W").length ?? 0;
+    if (homeForm10 !== awayForm10) {
+      const formFav = homeForm10 > awayForm10 ? homeTeam : awayTeam;
+      edgeLines.push(`  Form Edge: ${formFav} (${Math.max(homeForm10, awayForm10)}W vs ${Math.min(homeForm10, awayForm10)}W in last 10)`);
+    }
+
+    const homeOff = stats.home.offensiveRank;
+    const awayOff = stats.away.offensiveRank;
+    const homeDef = stats.home.defensiveRank;
+    const awayDef = stats.away.defensiveRank;
+    if (homeOff && awayDef) {
+      const mismatch = awayDef - homeOff;
+      if (Math.abs(mismatch) >= 10) {
+        edgeLines.push(`  ${homeTeam} Offense (#${homeOff}) vs ${awayTeam} Defense (#${awayDef}) — ${mismatch > 0 ? "offensive mismatch favours " + homeTeam : "defensive mismatch favours " + awayTeam}`);
+      }
+    }
+    if (awayOff && homeDef) {
+      const mismatch = homeDef - awayOff;
+      if (Math.abs(mismatch) >= 10) {
+        edgeLines.push(`  ${awayTeam} Offense (#${awayOff}) vs ${homeTeam} Defense (#${homeDef}) — ${mismatch > 0 ? "offensive mismatch favours " + awayTeam : "defensive mismatch favours " + homeTeam}`);
+      }
+    }
+  }
+
   const h2hLines: string[] = [];
   if (stats.headToHead) {
-    const tieText = stats.headToHead.ties > 0 ? `, ${stats.headToHead.ties} ties` : "";
-    h2hLines.push("", `Head-to-Head Record (last 3 seasons): ${stats.headToHead.meetings} games — ${homeTeam} ${stats.headToHead.homeWins}W, ${awayTeam} ${stats.headToHead.awayWins}W${tieText}`);
+    const tieText = stats.headToHead.ties > 0 ? `, ${stats.headToHead.ties} draws` : "";
+    h2hLines.push("", `═══ HEAD-TO-HEAD RECORD (last 3 seasons) ═══`);
+    h2hLines.push(`  Overall: ${stats.headToHead.meetings} meetings — ${homeTeam} ${stats.headToHead.homeWins}W, ${awayTeam} ${stats.headToHead.awayWins}W${tieText}`);
+    if (stats.headToHead.meetings >= 3) {
+      const domTeam = stats.headToHead.homeWins > stats.headToHead.awayWins ? homeTeam : stats.headToHead.awayWins > stats.headToHead.homeWins ? awayTeam : null;
+      const domPct = domTeam === homeTeam
+        ? ((stats.headToHead.homeWins / stats.headToHead.meetings) * 100).toFixed(0)
+        : domTeam === awayTeam
+          ? ((stats.headToHead.awayWins / stats.headToHead.meetings) * 100).toFixed(0)
+          : "50";
+      if (domTeam) {
+        h2hLines.push(`  ⚡ H2H DOMINANCE: ${domTeam} wins ${domPct}% of meetings — ${Number(domPct) >= 70 ? "STRONG" : "moderate"} historical edge`);
+      } else {
+        h2hLines.push(`  H2H is EVENLY SPLIT — no clear historical edge`);
+      }
+    }
     if (stats.headToHead.seasonBreakdown?.length) {
       h2hLines.push(`  By season: ${stats.headToHead.seasonBreakdown.map(s => `${s.season}: ${s.games} games`).join(", ")}`);
     }
+    h2hLines.push(`  Recent results:`);
     for (const g of stats.headToHead.games) {
       const seasonTag = g.season ? ` [${g.season}]` : "";
-      h2hLines.push(`  ${new Date(g.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}: ${g.homeScore}-${g.awayScore} (${g.winner})${seasonTag}`);
+      h2hLines.push(`    ${new Date(g.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}: ${g.homeScore}-${g.awayScore} (${g.winner})${seasonTag}`);
     }
   }
 
   const projLines: string[] = [];
   if (stats.projectedScore) {
-    projLines.push("", `Projected Score (based on team averages + home advantage): ${homeTeam} ${stats.projectedScore.home} — ${awayTeam} ${stats.projectedScore.away}`);
+    const total = stats.projectedScore.home + stats.projectedScore.away;
+    projLines.push("", `═══ PROJECTED SCORE ═══`);
+    projLines.push(`  ${homeTeam} ${stats.projectedScore.home} — ${awayTeam} ${stats.projectedScore.away} (total: ${total.toFixed(1)})`);
+    projLines.push(`  Use this projected total to evaluate over/under lines. If the O/U line is significantly different from ${total.toFixed(1)}, that gap is a betting signal.`);
   }
 
-  return [...lines, ...homeLines, "", ...awayLines, ...h2hLines, ...projLines].join("\n");
+  return [...lines, ...homeLines, "", ...awayLines, ...edgeLines, ...h2hLines, ...projLines].join("\n");
 }
 
 export function buildTeamStatsAnalysisGuide(): string {
-  return `How to use Team Statistics:
-• Home/away record is especially important — some teams perform drastically differently
-• Back-to-back games (rest ≤ 1 day) historically reduce win probability by 5-8%
-• Teams on 3+ game losing streaks often have underlying issues not visible in odds
-• Injury report: "Out" players reduce team ability significantly; "Questionable" adds uncertainty
-• Point differential (scored vs allowed) is a stronger predictor than win-loss record alone
-• A team averaging 10+ more pts/gm than they allow is a strong favourite signal
-• Power Rating combines win%, point differential, and scoring margin into a single 0-100 score
-• Elo rating >1600 = strong team, <1400 = weak team; compare both teams' Elo for matchup edge
-• Head-to-head record shows if one team has a matchup advantage this season
-• Conference/division rank and records indicate strength within their competitive group
-• Projected score helps calibrate over/under and spread bets`;
+  return `═══ HOW TO ANALYZE TEAM DATA ═══
+POWER METRICS (weight these heavily):
+• Power Rating 0-100: >75 = strong, 50-75 = average, <50 = weak. A gap of 15+ is a DOMINANT edge.
+• Elo Rating: >1600 = elite, 1450-1600 = average, <1450 = weak. A gap of 100+ Elo is a SIGNIFICANT mismatch.
+• Compare both metrics — if both agree on the same favourite, confidence should increase.
+
+FORM & MOMENTUM:
+• Last 10 form is more predictive than season record. 7+ wins in last 10 = hot team. 3 or fewer = cold.
+• Current streak: 3+ game winning/losing streak amplifies confidence/concern.
+• Rest: ≤1 day rest (back-to-back) reduces win probability by 5-8%. ≥3 day rest edge is meaningful.
+
+HEAD-TO-HEAD (very important):
+• H2H record across 3 seasons reveals matchup-specific advantages that don't show in overall stats.
+• A team winning 70%+ of H2H meetings has a STRONG historical edge — weight this as a top-3 factor.
+• Even H2H (50/50) means focus on current form and odds instead.
+• Recent H2H results matter more than older ones.
+
+RANKINGS & MATCHUPS:
+• Offensive rank vs opposing defensive rank reveals mismatches. Top-10 offense vs bottom-10 defense = scoring potential.
+• Division/conference records indicate strength against quality opponents.
+• Home/away splits: some teams are drastically different at home vs away.
+
+PROJECTED SCORE:
+• Compare projected total against the O/U line. A gap of 3+ points is a clear lean direction.
+• If projected total is 48.5 but the O/U line is 44.5, that's a strong OVER signal.
+• Projected winner margin helps calibrate spread bets.
+
+SOCCER-SPECIFIC:
+• League points and table position are the primary ranking metric — more important than win%.
+• Draws are common (~25% of games). Factor draw likelihood when odds are close.
+• Goal differential is the key scoring metric.`;
 }

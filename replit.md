@@ -150,6 +150,7 @@ Prediction modes: hybrid (ML+AI), ml (pure ML), ai (GPT-5.2 only), ml-fallback (
 - **AI Integration**: Replit OpenAI proxy (gpt-5.2), no user API key needed
 - **The Odds API**: `ODDS_API_KEY` env var; sport key mapping in `SPORT_KEY_MAP`
 - **ESPN API**: public, no auth; fetches team records, recent form (last 10 games), injuries, standings, offensive/defensive ranks, power ratings, Elo, and multi-season head-to-head (last 3 seasons) via `teamStats.ts`
+- **AI Prediction Pipeline**: All ESPN data (Power Rating, Elo, H2H dominance, projected score, form, rest, injuries) is fed into GPT-5.2 prompt with a structured 10-step analysis hierarchy. AI returns `edgeBreakdown` (power/elo/form/h2h/projected edges), `confidenceFactors`, and `keyFactors` referencing specific metrics. Projected score is compared against O/U and spread lines to detect betting signals. Soccer draws reduce confidence. Edge analysis handles ties (EVEN labeling for <10 Elo or <3 Power diff).
 - **Weather**: Open-Meteo, no key
 
 ### `scripts` (`@workspace/scripts`)

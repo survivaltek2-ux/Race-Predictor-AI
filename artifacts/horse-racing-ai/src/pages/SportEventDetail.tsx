@@ -840,6 +840,46 @@ export function SportEventDetail() {
                     </div>
                   )}
 
+                  {prediction.edgeBreakdown && (
+                    <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-4 space-y-2">
+                      <h4 className="text-xs font-bold text-violet-400 uppercase mb-2 flex items-center gap-2">
+                        <TrendingUp className="w-3.5 h-3.5" /> Matchup Edge Breakdown
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {prediction.edgeBreakdown.powerEdge && (
+                          <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                            <span className="text-violet-400 font-bold shrink-0">PWR</span>
+                            {prediction.edgeBreakdown.powerEdge}
+                          </div>
+                        )}
+                        {prediction.edgeBreakdown.eloEdge && (
+                          <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                            <span className="text-violet-400 font-bold shrink-0">ELO</span>
+                            {prediction.edgeBreakdown.eloEdge}
+                          </div>
+                        )}
+                        {prediction.edgeBreakdown.formEdge && (
+                          <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                            <span className="text-violet-400 font-bold shrink-0">FORM</span>
+                            {prediction.edgeBreakdown.formEdge}
+                          </div>
+                        )}
+                        {prediction.edgeBreakdown.h2hEdge && (
+                          <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                            <span className="text-violet-400 font-bold shrink-0">H2H</span>
+                            {prediction.edgeBreakdown.h2hEdge}
+                          </div>
+                        )}
+                        {prediction.edgeBreakdown.projectedScoreEdge && (
+                          <div className="flex items-start gap-2 text-xs text-muted-foreground col-span-full">
+                            <span className="text-violet-400 font-bold shrink-0">PROJ</span>
+                            {prediction.edgeBreakdown.projectedScoreEdge}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Confidence Factors */}
                   {(prediction.confidenceFactors?.boosts?.length > 0 || prediction.confidenceFactors?.reducers?.length > 0) && (
                     <div className="rounded-xl border border-slate-500/20 bg-slate-500/5 p-4 space-y-3">
