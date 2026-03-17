@@ -106,7 +106,7 @@ Respond ONLY with valid JSON in this exact format:
   "confidenceScore": 0.45
 }`;
 
-    const response = await openai.messages.create({
+    const response = await openai.chat.completions.create({
       model: "gpt-5.2",
       max_tokens: 1024,
       messages: [{ role: "user", content: prompt }],
