@@ -79,7 +79,7 @@ export function SportEventDetail() {
   const eventId = params?.eventId || "";
   const queryClient = useQueryClient();
 
-  const { data: events } = useQuery<any[]>({
+  const { data: eventsData } = useQuery<any>({
     queryKey: ["sport-events", sport],
     queryFn: async () => {
       const res = await fetch(`${BASE}/api/sports/events?sport=${sport}`);
@@ -90,7 +90,7 @@ export function SportEventDetail() {
     enabled: !!sport,
   });
 
-  const { data: predictions } = useQuery<any[]>({
+  const { data: predictionsData } = useQuery<any>({
     queryKey: ["sports-predictions", sport],
     queryFn: async () => {
       const res = await fetch(`${BASE}/api/sports/predictions?sport=${sport}`);
@@ -100,8 +100,10 @@ export function SportEventDetail() {
     staleTime: 60 * 1000,
   });
 
-  const event = events?.find((e) => e.id === eventId);
-  const prediction = predictions?.find((p) => p.externalEventId === eventId);
+  const events: any[] = Array.isArray(eventsData) ? eventsData : (eventsData?.events || []);
+  const predictions: any[] = Array.isArray(predictionsData) ? predictionsData : (predictionsData?.predictions || []);
+  const event = events.find((e) => e.id === eventId);
+  const prediction = predictions.find((p) => p.externalEventId === eventId);
 
   const generateMutation = useMutation({
     mutationFn: async () => {
