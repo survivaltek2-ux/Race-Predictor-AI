@@ -243,15 +243,17 @@ export function Lottery() {
                   <span className="text-xs text-muted-foreground w-24 shrink-0">
                     {format(new Date(r.drawDate), "MMM d, yyyy")}
                   </span>
-                  <div className="flex gap-1.5">
+                  <div className="flex gap-1.5 flex-wrap">
                     {r.winningNumbers.map((num: number, i: number) => (
                       <span key={i} className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-white/10 text-white font-bold text-xs">
                         {num}
                       </span>
                     ))}
-                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-500/20 text-amber-400 font-bold text-xs ml-1">
-                      {r.bonusNumber}
-                    </span>
+                    {r.bonusNumber > 0 && (
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-500/20 text-amber-400 font-bold text-xs ml-1">
+                        {r.bonusNumber}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -408,9 +410,13 @@ export function Lottery() {
                               </div>
                             </div>
                             <div className="px-3 py-4">
-                              <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 font-bold text-sm">
-                                {pred.bonusNumber}
-                              </span>
+                              {pred.bonusNumber > 0 ? (
+                                <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 font-bold text-sm">
+                                  {pred.bonusNumber}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">N/A</span>
+                              )}
                             </div>
                             <div className="px-3 py-4 text-center">
                               <div className="flex flex-col items-center gap-1 w-20 mx-auto">

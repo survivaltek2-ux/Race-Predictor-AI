@@ -83,28 +83,35 @@ router.post("/lottery/predictions/generate", async (req, res) => {
           .map(([num]) => parseInt(num));
 
         const mlInsights = mlResult.algorithmBreakdown.map((a) => `${a.name}: ${a.insights.join("; ")}`).join("\n");
+        const hasBonus = game.bonusNumberMax > 0;
+
+        const bonusSection = hasBonus ? `
+- Most frequent bonus numbers: ${topBonuses.join(", ")}` : "";
+        const mlBonusSection = hasBonus ? `
+- ML predicted bonus: ${mlResult.bonusNumber}` : "";
+        const bonusInstruction = hasBonus
+          ? ` and 1 bonus number (1-${game.bonusNumberMax})`
+          : "";
+        const bonusJson = hasBonus ? `\n  "bonusNumber": n,` : "";
 
         const prompt = `You are a lottery prediction AI using machine learning insights. Analyze "${game.name}":
 
 Historical Pattern Analysis:
-- Most frequent numbers (last ${recentResults.length} draws): ${sortedByFrequency.join(", ")}
-- Most frequent bonus numbers: ${topBonuses.join(", ")}
+- Most frequent numbers (last ${recentResults.length} draws): ${sortedByFrequency.join(", ")}${bonusSection}
 - Total draws analyzed: ${recentResults.length}
 
 Machine Learning Ensemble Results:
-- ML predicted numbers: ${mlResult.mainNumbers.join(", ")}
-- ML predicted bonus: ${mlResult.bonusNumber}
+- ML predicted numbers: ${mlResult.mainNumbers.join(", ")}${mlBonusSection}
 - ML ensemble confidence: ${(mlResult.confidence * 100).toFixed(1)}%
 
 Individual Algorithm Insights:
 ${mlInsights}
 
-Consider the ML results alongside your own analysis. Generate ${game.numberOfPicks} main numbers (1-${game.maxNumber}) and 1 bonus number (1-${game.bonusNumberMax}).
+Consider the ML results alongside your own analysis. Generate ${game.numberOfPicks} main numbers (1-${game.maxNumber})${bonusInstruction}.
 
 Respond ONLY with valid JSON:
 {
-  "mainNumbers": [n1, n2, n3, n4, n5],
-  "bonusNumber": n,
+  "mainNumbers": [${Array.from({ length: game.numberOfPicks }, (_, i) => `n${i + 1}`).join(", ")}],${bonusJson}
   "reasoning": "Brief explanation combining ML and AI analysis",
   "keyPatterns": ["pattern1", "pattern2", "pattern3"],
   "confidenceScore": 0.45
@@ -124,9 +131,9 @@ Respond ONLY with valid JSON:
           const validNumbers = Array.isArray(parsed.mainNumbers)
             ? [...new Set(parsed.mainNumbers.map(Number).filter((n: number) => !isNaN(n) && n >= 1 && n <= game.maxNumber))]
             : [];
-          const validBonus = typeof parsed.bonusNumber === "number" && parsed.bonusNumber >= 1 && parsed.bonusNumber <= game.bonusNumberMax
-            ? parsed.bonusNumber
-            : null;
+          const validBonus = hasBonus
+            ? (typeof parsed.bonusNumber === "number" && parsed.bonusNumber >= 1 && parsed.bonusNumber <= game.bonusNumberMax ? parsed.bonusNumber : null)
+            : 0;
           const validConfidence = typeof parsed.confidenceScore === "number"
             ? Math.max(0, Math.min(1, parsed.confidenceScore))
             : 0.35;
@@ -190,6 +197,10 @@ Respond ONLY with valid JSON:
       finalConfidence = Math.max(0, Math.min(1, mlResult.confidence * 0.5 + aiAnalysis.confidenceScore * 0.5));
       finalReasoning = `Hybrid prediction combining ML ensemble (${(mlResult.confidence * 100).toFixed(0)}% conf) with AI analysis (${(aiAnalysis.confidenceScore * 100).toFixed(0)}% conf). ${aiAnalysis.reasoning}`;
       finalPatterns = [...(aiAnalysis.keyPatterns || []), ...mlResult.algorithmBreakdown.flatMap((a) => a.insights).slice(0, 3)];
+    }
+
+    if (game.bonusNumberMax === 0) {
+      finalBonus = 0;
     }
 
     const fullAnalysis = {

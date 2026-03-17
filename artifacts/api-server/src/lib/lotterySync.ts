@@ -1,22 +1,25 @@
 import { db, lotteryGames, lotteryResults } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 
-const LOTTERY_APIS: Record<string, { url: string; parseRow: (row: any) => { drawDate: Date; numbers: number[]; bonus: number; multiplier?: number } | null }> = {
+type ParsedRow = { drawDate: Date; numbers: number[]; bonus: number; multiplier?: number } | null;
+
+function parseSpaceSeparated(str: string): number[] {
+  return (str || "").trim().split(/\s+/).map(Number).filter((n) => !isNaN(n));
+}
+
+const LOTTERY_APIS: Record<string, { url: string; parseRow: (row: any) => ParsedRow }> = {
   powerball: {
     url: "https://data.ny.gov/resource/d6yy-54nr.json",
     parseRow(row: any) {
       try {
         const drawDate = new Date(row.draw_date);
         if (isNaN(drawDate.getTime())) return null;
-        const parts = (row.winning_numbers || "").trim().split(/\s+/).map(Number);
-        if (parts.length < 6 || parts.some(isNaN)) return null;
-        const numbers = parts.slice(0, 5).sort((a: number, b: number) => a - b);
+        const parts = parseSpaceSeparated(row.winning_numbers);
+        if (parts.length < 6) return null;
+        const numbers = parts.slice(0, 5).sort((a, b) => a - b);
         const bonus = parts[5];
-        const multiplier = row.multiplier ? Number(row.multiplier) : undefined;
-        return { drawDate, numbers, bonus, multiplier };
-      } catch {
-        return null;
-      }
+        return { drawDate, numbers, bonus, multiplier: row.multiplier ? Number(row.multiplier) : undefined };
+      } catch { return null; }
     },
   },
   mega_millions: {
@@ -25,16 +28,69 @@ const LOTTERY_APIS: Record<string, { url: string; parseRow: (row: any) => { draw
       try {
         const drawDate = new Date(row.draw_date);
         if (isNaN(drawDate.getTime())) return null;
-        const parts = (row.winning_numbers || "").trim().split(/\s+/).map(Number);
-        if (parts.length < 5 || parts.some(isNaN)) return null;
-        const numbers = parts.slice(0, 5).sort((a: number, b: number) => a - b);
-        const bonus = row.mega_ball ? Number(row.mega_ball) : (parts[5] || 0);
+        const parts = parseSpaceSeparated(row.winning_numbers);
+        if (parts.length < 5) return null;
+        const numbers = parts.slice(0, 5).sort((a, b) => a - b);
+        const bonus = row.mega_ball ? Number(row.mega_ball) : 0;
         if (isNaN(bonus)) return null;
-        const multiplier = row.megaplier ? Number(row.megaplier) : undefined;
-        return { drawDate, numbers, bonus, multiplier };
-      } catch {
-        return null;
-      }
+        return { drawDate, numbers, bonus, multiplier: row.megaplier ? Number(row.megaplier) : undefined };
+      } catch { return null; }
+    },
+  },
+  cash4life: {
+    url: "https://data.ny.gov/resource/kwxv-fwze.json",
+    parseRow(row: any) {
+      try {
+        const drawDate = new Date(row.draw_date);
+        if (isNaN(drawDate.getTime())) return null;
+        const parts = parseSpaceSeparated(row.winning_numbers);
+        if (parts.length < 5) return null;
+        const numbers = parts.slice(0, 5).sort((a, b) => a - b);
+        const bonus = row.cash_ball ? Number(row.cash_ball) : 0;
+        if (isNaN(bonus)) return null;
+        return { drawDate, numbers, bonus };
+      } catch { return null; }
+    },
+  },
+  ny_lotto: {
+    url: "https://data.ny.gov/resource/6nbc-h7bj.json",
+    parseRow(row: any) {
+      try {
+        const drawDate = new Date(row.draw_date);
+        if (isNaN(drawDate.getTime())) return null;
+        const parts = parseSpaceSeparated(row.winning_numbers);
+        if (parts.length < 6) return null;
+        const numbers = parts.slice(0, 6).sort((a, b) => a - b);
+        const bonus = row.bonus ? Number(row.bonus) : 0;
+        if (isNaN(bonus)) return null;
+        return { drawDate, numbers, bonus };
+      } catch { return null; }
+    },
+  },
+  take5: {
+    url: "https://data.ny.gov/resource/dg63-4siq.json",
+    parseRow(row: any) {
+      try {
+        const drawDate = new Date(row.draw_date);
+        if (isNaN(drawDate.getTime())) return null;
+        const nums = parseSpaceSeparated(row.evening_winning_numbers || row.winning_numbers || "");
+        if (nums.length < 5) return null;
+        const numbers = nums.slice(0, 5).sort((a, b) => a - b);
+        return { drawDate, numbers, bonus: 0 };
+      } catch { return null; }
+    },
+  },
+  pick10: {
+    url: "https://data.ny.gov/resource/bycu-cw7c.json",
+    parseRow(row: any) {
+      try {
+        const drawDate = new Date(row.draw_date);
+        if (isNaN(drawDate.getTime())) return null;
+        const parts = parseSpaceSeparated(row.winning_numbers);
+        if (parts.length < 20) return null;
+        const numbers = parts.slice(0, 20).sort((a, b) => a - b);
+        return { drawDate, numbers, bonus: 0 };
+      } catch { return null; }
     },
   },
 };

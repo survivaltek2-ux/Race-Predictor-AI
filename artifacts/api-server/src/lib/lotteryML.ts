@@ -43,12 +43,16 @@ function fillRandom(existing: number[], picks: number, maxNumber: number): numbe
   return Array.from(nums).sort((a, b) => a - b);
 }
 
+function randomBonus(bonusMax: number): number {
+  return bonusMax > 0 ? Math.floor(Math.random() * bonusMax) + 1 : 0;
+}
+
 function makeDefaultResult(name: string, desc: string, weight: number, picks: number, maxNumber: number, bonusMax: number): AlgorithmResult {
   return {
     name,
     description: desc,
     predictedNumbers: generateRandom(picks, maxNumber),
-    predictedBonus: Math.floor(Math.random() * bonusMax) + 1,
+    predictedBonus: randomBonus(bonusMax),
     weight,
     confidence: 0.15,
     insights: ["No historical data — using randomized baseline"],
@@ -105,7 +109,7 @@ function weightedFrequencyAnalysis(
     name: "Weighted Frequency",
     description: "Exponentially weights recent draws to identify trending numbers",
     predictedNumbers: predicted,
-    predictedBonus: bonusSorted[0]?.number || 1,
+    predictedBonus: bonusSorted[0]?.number || randomBonus(bonusMax),
     weight: 0.25,
     confidence: Math.max(0.15, confidence),
     insights,
@@ -164,7 +168,7 @@ function gapAnalysis(
     name: "Gap Analysis",
     description: "Identifies overdue numbers based on average appearance intervals",
     predictedNumbers: predicted,
-    predictedBonus: bonusOverdue[0]?.number || 1,
+    predictedBonus: bonusOverdue[0]?.number || randomBonus(bonusMax),
     weight: 0.2,
     confidence: Math.max(0.15, confidence),
     insights,
@@ -225,7 +229,7 @@ function pairClusterAnalysis(
     name: "Pair Clustering",
     description: "Identifies frequently co-occurring number pairs and clusters",
     predictedNumbers: predicted.length >= picks ? predicted : fillRandom(predicted, picks, maxNumber),
-    predictedBonus: parseInt(topBonus[0]?.[0] || "1"),
+    predictedBonus: topBonus[0] ? parseInt(topBonus[0][0]) : randomBonus(bonusMax),
     weight: 0.15,
     confidence: Math.max(0.15, confidence),
     insights,
@@ -281,7 +285,7 @@ function movingAverageTrend(
     name: "Moving Average Trend",
     description: "Detects trending numbers using moving average crossover",
     predictedNumbers: predicted,
-    predictedBonus: parseInt(topBonus[0]?.[0] || String(Math.floor(Math.random() * bonusMax) + 1)),
+    predictedBonus: parseInt(topBonus[0]?.[0] || String(randomBonus(bonusMax))),
     weight: 0.1,
     confidence: Math.max(0.15, confidence),
     insights,
@@ -383,7 +387,7 @@ function monteCarloSimulation(
     name: "Monte Carlo Simulation",
     description: `Ran ${SIMULATIONS.toLocaleString()} weighted random simulations to find statistically favored numbers`,
     predictedNumbers: predicted,
-    predictedBonus: bonusSorted[0]?.number || 1,
+    predictedBonus: bonusSorted[0]?.number || randomBonus(bonusMax),
     weight: 0.25,
     confidence: Math.max(0.15, confidence),
     insights,
@@ -437,7 +441,7 @@ function sumDistributionAnalysis(
     name: "Sum Distribution",
     description: "Ensures predicted numbers follow the statistical sum distribution of historical draws",
     predictedNumbers: bestCombo.sort((a, b) => a - b),
-    predictedBonus: parseInt(topBonus[0]?.[0] || String(Math.floor(Math.random() * bonusMax) + 1)),
+    predictedBonus: parseInt(topBonus[0]?.[0] || String(randomBonus(bonusMax))),
     weight: 0.05,
     confidence: Math.max(0.15, confidence),
     insights,
@@ -482,7 +486,7 @@ export function runMLEnsemble(
   const sortedBonus = Object.entries(bonusVotes)
     .map(([n, v]) => ({ number: parseInt(n), votes: v }))
     .sort((a, b) => b.votes - a.votes);
-  const bonusNumber = sortedBonus[0]?.number || Math.floor(Math.random() * bonusMax) + 1;
+  const bonusNumber = sortedBonus[0]?.number || randomBonus(bonusMax);
 
   const totalConfidence = algorithms.reduce((s, a) => s + a.confidence * a.weight, 0);
   const totalWeight = algorithms.reduce((s, a) => s + a.weight, 0);

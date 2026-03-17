@@ -111,6 +111,10 @@ Tables: tracks, horses, races, race_entries, predictions, sports_events, sports_
 Pulls real historical lottery results from the **NY Open Data API** (free, no API key):
 - **Powerball**: `data.ny.gov/resource/d6yy-54nr.json` (since 2010)
 - **Mega Millions**: `data.ny.gov/resource/5xaw-6ayf.json` (since 2002)
+- **Cash4Life**: `data.ny.gov/resource/kwxv-fwze.json` (since 2014)
+- **NY Lotto**: `data.ny.gov/resource/6nbc-h7bj.json` (since 2001)
+- **Take 5**: `data.ny.gov/resource/dg63-4siq.json` (since 1992, no bonus)
+- **Pick 10**: `data.ny.gov/resource/bycu-cw7c.json` (since 1987, no bonus, pick 10 from 80)
 
 Features:
 - Auto-syncs on server startup (3s delay)
