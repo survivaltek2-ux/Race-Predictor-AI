@@ -18,6 +18,7 @@ import SportsPredictions from "@/pages/SportsPredictions";
 import { Sports } from "@/pages/Sports";
 import { SportEvents } from "@/pages/SportEvents";
 import { SportEventDetail } from "@/pages/SportEventDetail";
+import Lottery from "@/pages/Lottery";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -43,6 +44,7 @@ function Router() {
         <Route path="/sports" component={Sports} />
         <Route path="/sports/:sport" component={SportEvents} />
         <Route path="/sports/:sport/events/:eventId" component={SportEventDetail} />
+        <Route path="/lottery" component={Lottery} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

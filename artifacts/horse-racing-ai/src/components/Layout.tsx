@@ -11,6 +11,7 @@ const navItems = [
   { href: "/predictions", label: "Racing Picks", icon: History },
   { href: "/sports", label: "All Sports", icon: Tv2 },
   { href: "/sports-predictions", label: "Sports Picks", icon: BrainCircuit },
+  { href: "/lottery", label: "Lottery Predictor", icon: BrainCircuit },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
