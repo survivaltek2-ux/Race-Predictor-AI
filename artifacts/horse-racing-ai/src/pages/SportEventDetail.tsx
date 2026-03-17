@@ -505,28 +505,46 @@ export function SportEventDetail() {
                 <Card className="bg-card/60 border-violet-500/20">
                   <CardContent className="p-5 space-y-3">
                     <h3 className="text-xs font-bold text-violet-400 uppercase tracking-widest flex items-center gap-2">
-                      <Users className="w-4 h-4" /> Head-to-Head This Season
+                      <Users className="w-4 h-4" /> Team vs Team Record
+                      <Badge variant="outline" className="text-[10px] ml-auto border-violet-500/30 text-violet-400">Last 3 Seasons</Badge>
                     </h3>
                     <div className="flex items-center justify-center gap-6">
                       <div className="text-center">
                         <p className="text-xs text-muted-foreground mb-1">{event.home_team}</p>
-                        <p className="text-3xl font-bold font-mono text-emerald-400">{matchupStats.headToHead.homeWins}</p>
+                        <p className={cn("text-3xl font-bold font-mono", matchupStats.headToHead.homeWins > matchupStats.headToHead.awayWins ? "text-emerald-400" : matchupStats.headToHead.homeWins < matchupStats.headToHead.awayWins ? "text-red-400" : "text-white")}>{matchupStats.headToHead.homeWins}</p>
                         <p className="text-xs text-muted-foreground">wins</p>
                       </div>
-                      <div className="text-center">
-                        <p className="text-sm text-muted-foreground">{matchupStats.headToHead.meetings} games</p>
+                      <div className="text-center space-y-1">
+                        <p className="text-sm text-muted-foreground font-mono">{matchupStats.headToHead.meetings} games</p>
+                        {matchupStats.headToHead.meetings > 0 && (
+                          <p className="text-[10px] text-muted-foreground">
+                            {((matchupStats.headToHead.homeWins / matchupStats.headToHead.meetings) * 100).toFixed(0)}% — {((matchupStats.headToHead.awayWins / matchupStats.headToHead.meetings) * 100).toFixed(0)}%
+                          </p>
+                        )}
+                        {matchupStats.headToHead.ties > 0 && (
+                          <p className="text-[10px] text-muted-foreground">{matchupStats.headToHead.ties} tie{matchupStats.headToHead.ties > 1 ? "s" : ""}</p>
+                        )}
                       </div>
                       <div className="text-center">
                         <p className="text-xs text-muted-foreground mb-1">{event.away_team}</p>
-                        <p className="text-3xl font-bold font-mono text-red-400">{matchupStats.headToHead.awayWins}</p>
+                        <p className={cn("text-3xl font-bold font-mono", matchupStats.headToHead.awayWins > matchupStats.headToHead.homeWins ? "text-emerald-400" : matchupStats.headToHead.awayWins < matchupStats.headToHead.homeWins ? "text-red-400" : "text-white")}>{matchupStats.headToHead.awayWins}</p>
                         <p className="text-xs text-muted-foreground">wins</p>
                       </div>
                     </div>
+                    {matchupStats.headToHead.seasonBreakdown?.length > 0 && (
+                      <div className="flex items-center justify-center gap-3">
+                        {matchupStats.headToHead.seasonBreakdown.map((s: any) => (
+                          <Badge key={s.season} variant="secondary" className="text-[10px] font-mono">
+                            {s.season}: {s.games}g
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                     {matchupStats.headToHead.games?.length > 0 && (
                       <div className="space-y-1 mt-2">
                         {matchupStats.headToHead.games.map((g: any, i: number) => (
                           <div key={i} className="flex items-center justify-between text-xs px-2 py-1 rounded bg-secondary/20">
-                            <span className="text-muted-foreground">{format(new Date(g.date), "MMM d")}</span>
+                            <span className="text-muted-foreground font-mono">{format(new Date(g.date), "MMM d, yyyy")}</span>
                             <span className="font-mono text-white">{g.homeScore}-{g.awayScore}</span>
                             <span className="text-primary font-semibold">{g.winner}</span>
                           </div>

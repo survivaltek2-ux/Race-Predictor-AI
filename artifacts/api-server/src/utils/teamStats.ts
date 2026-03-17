@@ -85,7 +85,9 @@ export interface HeadToHead {
   meetings: number;
   homeWins: number;
   awayWins: number;
-  games: { date: string; homeScore: string; awayScore: string; winner: string }[];
+  ties: number;
+  games: { date: string; homeScore: string; awayScore: string; winner: string; season?: number }[];
+  seasonBreakdown?: { season: number; games: number }[];
 }
 
 export interface MatchupStats {
@@ -334,49 +336,78 @@ async function getHeadToHead(
   awayTeamName: string
 ): Promise<HeadToHead | null> {
   try {
-    const data = await espnGet(`${ESPN_BASE}/${sport}/${league}/teams/${homeTeamId}/schedule`);
-    const events: any[] = data?.events ?? [];
+    const currentYear = new Date().getFullYear();
+    const seasons = [currentYear, currentYear - 1, currentYear - 2];
 
-    const h2hGames: HeadToHead["games"] = [];
-    let homeWins = 0;
-    let awayWins = 0;
+    const allGames: HeadToHead["games"] = [];
+    const seenIds = new Set<string>();
+    let team1Wins = 0;
+    let team2Wins = 0;
+    let ties = 0;
 
-    for (const ev of events) {
-      const comp = ev.competitions?.[0];
-      if (!comp?.status?.type?.completed) continue;
-      const competitors: any[] = comp.competitors ?? [];
-      const home = competitors.find((c: any) => c.homeAway === "home");
-      const away = competitors.find((c: any) => c.homeAway === "away");
-      if (!home || !away) continue;
+    for (const season of seasons) {
+      const data = await espnGet(`${ESPN_BASE}/${sport}/${league}/teams/${homeTeamId}/schedule?season=${season}`);
+      const events: any[] = data?.events ?? [];
 
-      const hasOpponent =
-        String(home.team?.id) === String(awayTeamId) ||
-        String(away.team?.id) === String(awayTeamId);
-      if (!hasOpponent) continue;
+      for (const ev of events) {
+        const comp = ev.competitions?.[0];
+        if (!comp?.status?.type?.completed) continue;
+        const competitors: any[] = comp.competitors ?? [];
+        const home = competitors.find((c: any) => c.homeAway === "home");
+        const away = competitors.find((c: any) => c.homeAway === "away");
+        if (!home || !away) continue;
 
-      const homeScore = typeof home.score === "object" ? home.score?.value ?? home.score?.displayValue ?? "?" : home.score;
-      const awayScore = typeof away.score === "object" ? away.score?.value ?? away.score?.displayValue ?? "?" : away.score;
-      const winner = home.winner ? home.team?.displayName ?? homeTeamName : away.team?.displayName ?? awayTeamName;
+        const hasOpponent =
+          String(home.team?.id) === String(awayTeamId) ||
+          String(away.team?.id) === String(awayTeamId);
+        if (!hasOpponent) continue;
 
-      if (String(home.team?.id) === String(homeTeamId) && home.winner) homeWins++;
-      else if (String(away.team?.id) === String(homeTeamId) && away.winner) homeWins++;
-      else awayWins++;
+        const eventKey = ev.id || ev.uid || ev.date;
+        if (seenIds.has(String(eventKey))) continue;
+        seenIds.add(String(eventKey));
 
-      h2hGames.push({
-        date: ev.date,
-        homeScore: String(homeScore),
-        awayScore: String(awayScore),
-        winner,
-      });
+        const homeScore = typeof home.score === "object" ? home.score?.value ?? home.score?.displayValue ?? "?" : home.score;
+        const awayScore = typeof away.score === "object" ? away.score?.value ?? away.score?.displayValue ?? "?" : away.score;
+        const homeTeamWon = home.winner === true;
+        const awayTeamWon = away.winner === true;
+        const isTie = !homeTeamWon && !awayTeamWon;
+        const winner = isTie ? "Tie" : homeTeamWon ? (home.team?.displayName ?? "Home") : (away.team?.displayName ?? "Away");
+
+        if (isTie) {
+          ties++;
+        } else {
+          const ourTeamIsHome = String(home.team?.id) === String(homeTeamId);
+          if ((ourTeamIsHome && homeTeamWon) || (!ourTeamIsHome && awayTeamWon)) {
+            team1Wins++;
+          } else {
+            team2Wins++;
+          }
+        }
+
+        allGames.push({
+          date: ev.date,
+          homeScore: String(homeScore),
+          awayScore: String(awayScore),
+          winner,
+          season,
+        });
+      }
     }
 
-    if (h2hGames.length === 0) return null;
+    if (allGames.length === 0) return null;
+
+    allGames.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     return {
-      meetings: h2hGames.length,
-      homeWins,
-      awayWins,
-      games: h2hGames.slice(-5),
+      meetings: allGames.length,
+      homeWins: team1Wins,
+      awayWins: team2Wins,
+      ties,
+      games: allGames.slice(0, 10),
+      seasonBreakdown: seasons.map(s => ({
+        season: s,
+        games: allGames.filter(g => g.season === s).length,
+      })).filter(s => s.games > 0),
     };
   } catch {
     return null;
@@ -533,9 +564,14 @@ export function buildTeamStatsSection(stats: MatchupStats, homeTeam: string, awa
 
   const h2hLines: string[] = [];
   if (stats.headToHead) {
-    h2hLines.push("", `Head-to-Head This Season: ${stats.headToHead.meetings} games — ${homeTeam} ${stats.headToHead.homeWins}W, ${awayTeam} ${stats.headToHead.awayWins}W`);
+    const tieText = stats.headToHead.ties > 0 ? `, ${stats.headToHead.ties} ties` : "";
+    h2hLines.push("", `Head-to-Head Record (last 3 seasons): ${stats.headToHead.meetings} games — ${homeTeam} ${stats.headToHead.homeWins}W, ${awayTeam} ${stats.headToHead.awayWins}W${tieText}`);
+    if (stats.headToHead.seasonBreakdown?.length) {
+      h2hLines.push(`  By season: ${stats.headToHead.seasonBreakdown.map(s => `${s.season}: ${s.games} games`).join(", ")}`);
+    }
     for (const g of stats.headToHead.games) {
-      h2hLines.push(`  ${new Date(g.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}: ${g.homeScore}-${g.awayScore} (${g.winner})`);
+      const seasonTag = g.season ? ` [${g.season}]` : "";
+      h2hLines.push(`  ${new Date(g.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}: ${g.homeScore}-${g.awayScore} (${g.winner})${seasonTag}`);
     }
   }
 
