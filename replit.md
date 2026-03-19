@@ -157,3 +157,28 @@ Prediction modes: hybrid (ML+AI), ml (pure ML), ai (GPT-5.2 only), ml-fallback (
 ### `scripts` (`@workspace/scripts`)
 
 Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
+
+### Docker Support
+
+Files: `Dockerfile`, `docker-compose.yml`, `docker-entrypoint.sh`, `.dockerignore`
+
+Multi-stage build:
+1. **base** — installs pnpm + all deps
+2. **frontend-build** — builds Vite frontend with `BASE_PATH="/"`
+3. **backend-build** — esbuild bundles API server to CJS
+4. **production** — slim image with prod deps only + both build outputs
+
+In Docker, the API server serves the frontend static files (enabled by `DOCKER=true` env var in `app.ts`).
+
+Quick start:
+```bash
+cp .env.example .env   # fill in OPENAI_API_KEY, ODDS_API_KEY
+docker compose up --build
+# App available at http://localhost:8080
+```
+
+Environment variables:
+- `DATABASE_URL` — auto-configured by docker-compose (points to `db` service)
+- `OPENAI_API_KEY` — your OpenAI API key (auto-mapped to AI_INTEGRATIONS_* vars)
+- `ODDS_API_KEY` — The Odds API key for live sports odds
+- `PORT` — server port (default: 8080)
