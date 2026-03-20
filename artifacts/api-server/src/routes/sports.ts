@@ -1,11 +1,12 @@
 import { Router, type IRouter } from "express";
-import { db, sportsPredictionsTable, sportsEventsTable } from "@workspace/db";
+import { db, sportsPredictionsTable, sportsEventsTable, sportsGamesTable, sportsTeamStatsTable } from "@workspace/db";
 import { eq, desc, and, or } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { fetchTeamNews } from "../utils/news";
 import { fetchWeather, getVenueCoords, buildWeatherPromptSection, OUTDOOR_SPORT_KEYS } from "../utils/weather";
 import { fetchMatchupStats, buildTeamStatsSection, buildTeamStatsAnalysisGuide } from "../utils/teamStats";
 import { predictSportsML } from "../lib/sportsML";
+import { syncHistoricalSports, syncAllHistoricalSports } from "../lib/historicalSportsSync";
 
 const router: IRouter = Router();
 
@@ -817,6 +818,77 @@ router.get("/sports/predictions/accuracy-by-sport", async (_req, res) => {
   }
 });
 
+router.post("/sports/historical/sync/:sport", async (req, res) => {
+  try {
+    const sport = req.params.sport;
+    const result = await syncHistoricalSports(sport);
+    res.json(result);
+  } catch (err) {
+    console.error("Error syncing historical sports:", err);
+    res.status(500).json({ error: "Failed to sync historical sports" });
+  }
+});
+
+router.post("/sports/historical/sync-all", async (req, res) => {
+  try {
+    const results = await syncAllHistoricalSports();
+    res.json({ status: "completed", results });
+  } catch (err) {
+    console.error("Error syncing all historical sports:", err);
+    res.status(500).json({ error: "Failed to sync all sports" });
+  }
+});
+
+router.get("/sports/historical/team-stats", async (req, res) => {
+  try {
+    const { sport, team } = req.query as { sport?: string; team?: string };
+
+    let query = db.select().from(sportsTeamStatsTable);
+
+    if (sport) {
+      query = query.where(eq(sportsTeamStatsTable.sportKey, sport));
+    }
+
+    if (team) {
+      query = query.where(eq(sportsTeamStatsTable.teamName, team));
+    }
+
+    const stats = await query.orderBy(desc(sportsTeamStatsTable.season));
+    res.json({ teamStats: stats });
+  } catch (err) {
+    console.error("Error fetching team stats:", err);
+    res.status(500).json({ error: "Failed to fetch team stats" });
+  }
+});
+
+router.get("/sports/historical/games", async (req, res) => {
+  try {
+    const { sport, team, limit } = req.query;
+    const sportKey = sport as string;
+    const teamName = team as string;
+    const pageLimit = Math.min(Number(limit) || 50, 200);
+
+    if (!sportKey) return res.status(400).json({ error: "sport query param required" });
+
+    let query = db.select().from(sportsGamesTable).where(eq(sportsGamesTable.sportKey, sportKey));
+
+    if (teamName) {
+      query = query.where(
+        or(
+          eq(sportsGamesTable.homeTeam, teamName),
+          eq(sportsGamesTable.awayTeam, teamName)
+        )
+      );
+    }
+
+    const games = await query.orderBy(desc(sportsGamesTable.gameDate)).limit(pageLimit);
+    res.json({ games });
+  } catch (err) {
+    console.error("Error fetching games:", err);
+    res.status(500).json({ error: "Failed to fetch games" });
+  }
+});
+
 function formatSportsPrediction(p: any) {
   let analysis: any = {};
   try { analysis = JSON.parse(p.analysisJson || "{}"); } catch {}
@@ -844,6 +916,7 @@ function formatSportsPrediction(p: any) {
     spreadMovements: analysis.spreadMovements ?? [],
     oddsAtPrediction: analysis.oddsAtPrediction ?? null,
     teamStats: analysis.teamStats ?? null,
+    mlPrediction: analysis.mlPrediction ?? null,
     wasCorrect: p.wasCorrect ?? null,
     actualWinner: p.actualWinner ?? null,
     createdAt: p.createdAt,

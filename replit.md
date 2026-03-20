@@ -162,6 +162,26 @@ For soccer, includes draw probability. Algorithms ensemble-average with their we
 
 ML predictions are stored in `analysisJson.mlPrediction` and displayed in the Sports Picks UI alongside AI predictions.
 
+### Historical Sports Data (`artifacts/api-server/src/lib/historicalSportsSync.ts`)
+
+System to pull and store historical sports game data for ML training and analysis:
+
+**Database Tables:**
+- `sports_games` — Completed game results (team names, scores, date, outcome)
+- `sports_team_stats` — Aggregated per-team stats per season (W/L/D, power rating, Elo)
+
+**API Endpoints:**
+- `POST /api/sports/historical/sync/:sport` — Fetch and store games for a specific sport (nfl, nba, mlb, nhl, ncaaf, ncaab)
+- `POST /api/sports/historical/sync-all` — Sync all supported sports in parallel
+- `GET /api/sports/historical/games?sport=nfl&team=Kansas City Chiefs&limit=50` — Query stored games
+- `GET /api/sports/historical/team-stats?sport=nfl&team=Chiefs` — Query team stats by sport/team/season
+
+**Process:**
+1. Fetches last 100 completed games from ESPN for each sport
+2. Stores game results with winner determination (handles draws for soccer)
+3. Aggregates team statistics: W/L/D, points for/against, power rating, Elo rating
+4. Indexes by sport, team, date for fast ML queries
+
 ### AI Prediction Pipeline
 
 All ESPN data (Power Rating, Elo, H2H dominance, projected score, form, rest, injuries) is fed into GPT-5.2 prompt with a structured 10-step analysis hierarchy. AI returns `edgeBreakdown` (power/elo/form/h2h/projected edges), `confidenceFactors`, and `keyFactors` referencing specific metrics. Projected score is compared against O/U and spread lines to detect betting signals. Soccer draws reduce confidence. Edge analysis handles ties (EVEN labeling for <10 Elo or <3 Power diff).
