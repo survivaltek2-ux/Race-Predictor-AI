@@ -162,6 +162,56 @@ For soccer, includes draw probability. Algorithms ensemble-average with their we
 
 ML predictions are stored in `analysisJson.mlPrediction` and displayed in the Sports Picks UI alongside AI predictions.
 
+### ML Monitoring & Analytics (`artifacts/api-server/src/lib/mlMonitoring.ts`)
+
+Real-time monitoring system for ML prediction performance and drift detection:
+
+**Database Table:**
+- `ml_metrics` — Stores per-algorithm predictions with outcomes for analysis
+
+**Monitoring Metrics:**
+- **Overall Accuracy** — % of correct predictions by sport
+- **Algorithm Performance** — Individual accuracy for each of the 5 algorithms
+- **Confidence Calibration** — How well model confidence aligns with actual accuracy
+- **Confidence Distribution** — Breakdown of predictions by confidence range (0-20%, 20-40%, etc.)
+- **Accuracy Trends** — Daily accuracy over time (7-day rolling view)
+- **Model Drift Detection** — Compares recent accuracy vs historical (threshold: 10% change)
+
+**API Endpoints:**
+- `GET /api/sports/ml-monitoring/:sport` — Full metrics for a sport (nfl, nba, mlb, etc.)
+- `GET /api/sports/ml-monitoring` — All sports metrics aggregated
+- `GET /api/sports/ml-drift/:sport` — Drift detection status
+
+**How It Works:**
+1. When prediction created → `recordMLPrediction()` stores each algorithm's output
+2. When result recorded → `updateMLMetricsWithResult()` marks outcome as correct/wrong
+3. Monitoring endpoints query metrics to calculate accuracy, confidence calibration, trends
+4. Drift detection compares last 20 predictions vs prior 20 to flag model degradation
+
+Example response from `/api/sports/ml-monitoring/nfl`:
+```json
+{
+  "sportKey": "nfl",
+  "totalPredictions": 45,
+  "resolvedPredictions": 32,
+  "overallAccuracy": 71.9,
+  "avgConfidence": 68.5,
+  "calibrationError": 3.4,
+  "algorithmStats": [
+    {
+      "name": "Team Strength Model",
+      "accuracy": 75.2,
+      "avgConfidence": 72.1,
+      "calibration": 3.1
+    }
+  ],
+  "accuracyTrend": [
+    { "date": "2026-03-18", "accuracy": 73.5, "count": 8 },
+    { "date": "2026-03-19", "accuracy": 68.9, "count": 9 }
+  ]
+}
+```
+
 ### Historical Sports Data (`artifacts/api-server/src/lib/historicalSportsSync.ts`)
 
 System to pull and store historical sports game data for ML training and analysis:

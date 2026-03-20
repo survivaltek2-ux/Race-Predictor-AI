@@ -5,4 +5,5 @@ export * from "./race_entries";
 export * from "./predictions";
 export * from "./sports";
 export * from "./sports_games";
+export * from "./ml_metrics";
 export * from "./lottery";

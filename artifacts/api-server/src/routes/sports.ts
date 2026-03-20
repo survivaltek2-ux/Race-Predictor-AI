@@ -7,6 +7,7 @@ import { fetchWeather, getVenueCoords, buildWeatherPromptSection, OUTDOOR_SPORT_
 import { fetchMatchupStats, buildTeamStatsSection, buildTeamStatsAnalysisGuide } from "../utils/teamStats";
 import { predictSportsML } from "../lib/sportsML";
 import { syncHistoricalSports, syncAllHistoricalSports } from "../lib/historicalSportsSync";
+import { recordMLPrediction, updateMLMetricsWithResult, getMLMetricsForSport, getAllSportsMLMetrics, getMLDriftDetection } from "../lib/mlMonitoring";
 
 const router: IRouter = Router();
 
@@ -672,7 +673,11 @@ Respond ONLY with valid JSON (no markdown):
       }),
     }).returning();
 
-    res.json(formatSportsPrediction(saved));
+    if (mlPrediction) {
+      await recordMLPrediction(saved[0]!.id, sportKey, mlPrediction);
+    }
+
+    res.json(formatSportsPrediction(saved[0]));
   } catch (err) {
     console.error("Error generating sports prediction:", err);
     res.status(500).json({ error: "Failed to generate prediction" });
@@ -704,6 +709,8 @@ router.patch("/sports/predictions/:id/result", async (req, res) => {
     if (typeof wasCorrect !== "boolean") {
       return res.status(400).json({ error: "wasCorrect (boolean) is required" });
     }
+
+    await updateMLMetricsWithResult(id, wasCorrect, actualWinner ?? "unknown");
 
     const [updated] = await db
       .update(sportsPredictionsTable)
@@ -815,6 +822,38 @@ router.get("/sports/predictions/accuracy-by-sport", async (_req, res) => {
   } catch (err) {
     console.error("Error fetching accuracy by sport:", err);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/sports/ml-monitoring/:sport", async (req, res) => {
+  try {
+    const sport = req.params.sport;
+    const metrics = await getMLMetricsForSport(sport);
+    res.json(metrics);
+  } catch (err) {
+    console.error("Error fetching ML metrics:", err);
+    res.status(500).json({ error: "Failed to fetch ML metrics" });
+  }
+});
+
+router.get("/sports/ml-monitoring", async (req, res) => {
+  try {
+    const metrics = await getAllSportsMLMetrics();
+    res.json(metrics);
+  } catch (err) {
+    console.error("Error fetching all ML metrics:", err);
+    res.status(500).json({ error: "Failed to fetch all ML metrics" });
+  }
+});
+
+router.get("/sports/ml-drift/:sport", async (req, res) => {
+  try {
+    const sport = req.params.sport;
+    const drift = await getMLDriftDetection(sport);
+    res.json(drift);
+  } catch (err) {
+    console.error("Error detecting drift:", err);
+    res.status(500).json({ error: "Failed to detect drift" });
   }
 });
 
