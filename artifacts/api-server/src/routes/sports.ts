@@ -5,6 +5,7 @@ import { openai } from "@workspace/integrations-openai-ai-server";
 import { fetchTeamNews } from "../utils/news";
 import { fetchWeather, getVenueCoords, buildWeatherPromptSection, OUTDOOR_SPORT_KEYS } from "../utils/weather";
 import { fetchMatchupStats, buildTeamStatsSection, buildTeamStatsAnalysisGuide } from "../utils/teamStats";
+import { predictSportsML } from "../lib/sportsML";
 
 const router: IRouter = Router();
 
@@ -419,6 +420,58 @@ router.post("/sports/predictions", async (req, res) => {
     const weatherSection = weatherResult ? buildWeatherPromptSection(weatherResult, "sports") : null;
     const oddsLines = buildOddsSection(oddsData, homeTeam, awayTeam);
 
+    // Generate ML predictions
+    let mlPrediction = null;
+    try {
+      const parseForm = (last10Str: string): number[] => {
+        if (!last10Str) return [];
+        return last10Str
+          .split("-")
+          .slice(0, 10)
+          .map((r) => (r === "W" ? 1 : r === "L" ? 0 : r === "D" ? 0.5 : 0))
+          .reverse();
+      };
+
+      const homeForm = parseForm(teamStatsResult.home?.last10 ?? "");
+      const awayForm = parseForm(teamStatsResult.away?.last10 ?? "");
+
+      const homeRecord = {
+        wins: teamStatsResult.home?.winLossRecord?.wins ?? 0,
+        losses: teamStatsResult.home?.winLossRecord?.losses ?? 0,
+        ties: teamStatsResult.home?.winLossRecord?.ties ?? 0,
+        pointsFor: teamStatsResult.home?.pointsFor ?? 0,
+        pointsAgainst: teamStatsResult.home?.pointsAgainst ?? 0,
+        powerRating: teamStatsResult.home?.powerRating ?? 50,
+        elo: teamStatsResult.home?.elo ?? 1500,
+        recentForm: homeForm,
+        daysSinceLastGame: teamStatsResult.home?.restDays ?? 2,
+      };
+
+      const awayRecord = {
+        wins: teamStatsResult.away?.winLossRecord?.wins ?? 0,
+        losses: teamStatsResult.away?.winLossRecord?.losses ?? 0,
+        ties: teamStatsResult.away?.winLossRecord?.ties ?? 0,
+        pointsFor: teamStatsResult.away?.pointsFor ?? 0,
+        pointsAgainst: teamStatsResult.away?.pointsAgainst ?? 0,
+        powerRating: teamStatsResult.away?.powerRating ?? 50,
+        elo: teamStatsResult.away?.elo ?? 1500,
+        recentForm: awayForm,
+        daysSinceLastGame: teamStatsResult.away?.restDays ?? 2,
+      };
+
+      const h2hData = teamStatsResult.headToHead
+        ? {
+            homeWins: teamStatsResult.headToHead.homeWins ?? 0,
+            awayWins: teamStatsResult.headToHead.awayWins ?? 0,
+            draws: teamStatsResult.headToHead.ties ?? 0,
+          }
+        : undefined;
+
+      mlPrediction = await predictSportsML(homeRecord, awayRecord, sportKey, h2hData);
+    } catch (err) {
+      console.warn("ML prediction failed, continuing with AI only:", err);
+    }
+
     // Historical model performance
     const resolvedSport = allSportPreds.filter((p) => p.wasCorrect !== null);
     const sportCorrect = resolvedSport.filter((p) => p.wasCorrect).length;
@@ -607,6 +660,14 @@ Respond ONLY with valid JSON (no markdown):
         },
         headToHead: teamStatsResult.headToHead ?? null,
         projectedScore: teamStatsResult.projectedScore ?? null,
+        mlPrediction: mlPrediction ? {
+          homeWinProb: mlPrediction.homeWinProb,
+          awayWinProb: mlPrediction.awayWinProb,
+          drawProb: mlPrediction.drawProb,
+          projectedTotal: mlPrediction.projectedTotal,
+          algorithmBreakdown: mlPrediction.algorithmBreakdown,
+          ensembleWeights: mlPrediction.ensembleWeights,
+        } : null,
       }),
     }).returning();
 
